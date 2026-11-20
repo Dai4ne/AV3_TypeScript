@@ -1,0 +1,27 @@
+# Pacotes instalados
+node_modules/
+
+# Segredos e configurações locais
+.env
+.env.*
+!.env.example
+
+# Arquivos gerados
+dist/
+src/generated/prisma/
+
+# Dados locais
+data/
+
+# Logs e arquivos do sistema
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# Arquivos auxiliares de editores
+.vscode/
+.agents/
+.claude/
+.windsurf/
+skills-lock.json
