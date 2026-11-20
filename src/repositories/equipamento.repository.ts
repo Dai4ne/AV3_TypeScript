@@ -83,7 +83,7 @@ export const equipamentoRepository = {
             const todosBaixaDefinitiva = ativos.length > 0 && ativos.every((item) => item.statusRastreamento === "BAIXA_DEFINITIVA");
             await tx.lote.update({
                 where: { id: atual.loteId },
-                data: { versao: { increment: 1 }, ...(todosBaixaDefinitiva ? { statusProcessamento: "TRIAGEM_CONCLUIDA" } : {}) },
+                data: { versao: { increment: 1 }, ...(todosBaixaDefinitiva ? { statusProcessamento: "TRIAGEM_CONCLUIDA", triagemConcluidaEm: new Date(), operadorTriagem: responsavel } : {}) },
             });
             return equipamento;
         });

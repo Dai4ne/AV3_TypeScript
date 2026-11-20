@@ -54,6 +54,8 @@ enum StatusRastreamento {
   BAIXA_DEFINITIVA
 }
 
+enum StatusJob { PENDENTE EM_PROCESSAMENTO CONCLUIDO FALHOU }
+
 model Usuario {
   id           String       @id @default(uuid())
   usuario      String       @unique
@@ -100,6 +102,8 @@ model Lote {
   transportadora      String
   statusProcessamento StatusLote   @default(RECEBIDO)
   observacoes         String       @default("")
+  triagemConcluidaEm  DateTime?    @db.Timestamptz(3)
+  operadorTriagem     String?
   ativo               Boolean      @default(true)
   versao              Int          @default(1)
   organizacao         Organizacao @relation(fields: [organizacaoId], references: [id], onDelete: Restrict)
@@ -125,6 +129,8 @@ model Equipamento {
   versao              Int                @default(1)
   lote                Lote               @relation(fields: [loteId], references: [id], onDelete: Restrict)
   movimentacoes       Movimentacao[]
+  historicoValores    HistoricoValorEquipamento[]
+  historicoFalhas     FalhaEquipamento[]
 
   @@index([loteId])
   @@index([statusRastreamento])
@@ -141,4 +147,61 @@ model Movimentacao {
   equipamento   Equipamento @relation(fields: [equipamentoId], references: [id], onDelete: Restrict)
 
   @@index([equipamentoId, dataHora])
+}
+
+model HistoricoValorEquipamento {
+  id String @id @default(uuid())
+  equipamentoId String
+  dataHora DateTime @default(now()) @db.Timestamptz(3)
+  valorEstimado Decimal @db.Decimal(12,2)
+  valorRecuperacao Decimal? @db.Decimal(12,2)
+  motivo String
+  equipamento Equipamento @relation(fields:[equipamentoId], references:[id], onDelete: Cascade)
+  @@index([equipamentoId, dataHora])
+}
+
+model FalhaEquipamento {
+  id String @id @default(uuid())
+  equipamentoId String
+  dataHora DateTime @default(now()) @db.Timestamptz(3)
+  descricao String
+  custo Decimal? @db.Decimal(12,2)
+  equipamento Equipamento @relation(fields:[equipamentoId], references:[id], onDelete: Cascade)
+  @@index([equipamentoId, dataHora])
+}
+
+model ChaveApi {
+  id String @id @default(uuid())
+  hash String @unique
+  parceiro String
+  permissoes String[]
+  ativo Boolean @default(true)
+  criadaEm DateTime @default(now())
+  expiraEm DateTime?
+  revogadaEm DateTime?
+  @@index([parceiro, ativo])
+}
+
+model ExecucaoAnalitica {
+  id String @id @default(uuid())
+  analise String
+  parametros Json
+  iniciadoEm DateTime @default(now())
+  concluidoEm DateTime?
+  resultado Json?
+  @@index([analise, iniciadoEm])
+}
+
+model JobRelatorio {
+  id String @id @default(uuid())
+  tipo String
+  status StatusJob @default(PENDENTE)
+  parametros Json
+  resultado Json?
+  erro String?
+  arquivo String?
+  tentativas Int @default(0)
+  criadoEm DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+  @@index([status, criadoEm])
 }

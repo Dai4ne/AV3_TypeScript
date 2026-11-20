@@ -20,6 +20,7 @@ Os dados da AV1 **não** são importados. A AV3 começa com os mesmos registros 
 10. [Controle de concorrência (`versao`)](#controle-de-concorrência-versao)
 11. [Comandos úteis](#comandos-úteis)
 12. [Problemas comuns](#problemas-comuns)
+13. [API pública e análises AV3](#api-pública-e-análises-av3)
 
 ## 🔧Ferramentas necessárias
 
@@ -181,6 +182,22 @@ Para produção local, depois do `npm run dev` funcionar:
        npm start
 
 `npm start` executa o JavaScript gerado em `dist/` e **não** recarrega sozinho ao editar o código.
+
+## API pública e análises AV3
+
+As rotas públicas v1 usam `X-API-Key`; as rotas legadas continuam disponíveis para compatibilidade interna durante a transição. O administrador cria/lista/revoga/rotaciona chaves em `/api/v1/internal/chaves` usando JWT. A chave completa aparece apenas na criação/rotação; o banco armazena SHA-256. Permissões disponíveis: `rastreabilidade:read`, `lotes:write`, `analises:read`. Rate limit padrão: 120 req/minuto por chave. A versão v1 será mantida por pelo menos 12 meses após a publicação de uma v2; a descontinuação terá aviso e data de remoção documentada com antecedência mínima de 90 dias.
+
+- `GET /api/v1/public/rastreabilidade/:codigo`
+- `POST /api/v1/public/lotes`
+- `GET /api/v1/public/analises/eficiencia|rentabilidade|vida-util`
+- `POST /api/v1/public/relatorios` com `{ "analise": "eficiencia" }` (retorna 202 e ID); `GET /api/v1/public/relatorios/:id` consulta status/resultado.
+- `GET /api/v1/internal/analises/{eficiencia,rentabilidade,vida-util}` (JWT)
+
+Eficiência considera horas entre entrada e conclusão do lote e agrupa por operador e mês, exibindo média e desvio padrão; grupos acima da média geral indicam gargalo. Rentabilidade calcula recuperação média a partir do último valor de recuperação por equipamento, agrupada por estado, marca e modelo. Vida útil usa regressão linear dos valores estimados registrados e projeta cruzamento de 10% do valor atual; exige ao menos duas medições para uma projeção. `simple-statistics` oferece implementações pequenas e focadas de média, desvio padrão e regressão, sem introduzir uma biblioteca matemática genérica.
+
+`ExecucaoAnalitica` guarda parâmetros, início, conclusão e resultado JSON para histórico e avaliação posterior. `HistoricoValorEquipamento` e `FalhaEquipamento` preservam medições e falhas. `JobRelatorio` mantém estado, parâmetros, resultado, erro e tentativas. Com `REDIS_URL` configurada, BullMQ usa até 5 tentativas com backoff exponencial iniciado em 1 segundo e mantém falhas esgotadas para inspeção; `RUN_REPORT_WORKER=true` inicia um worker. Sem Redis, os jobs rodam em segundo plano no processo da API. As análises também são agendadas diariamente às 02:00 (America/Sao_Paulo).
+
+As chaves e rotas estão versionadas por URL; clientes antigos devem migrar para v1 antes de eventual v2. Para escalar, executar múltiplos workers BullMQ, particionar histórico por data/parceiro, cachear agregados por período, aplicar cotas de rate limit por plano e usar réplicas de leitura para relatórios. A API pública deve ser publicada com exemplos e schemas OpenAPI; todo endpoint v1 deve incluir exemplos de sucesso e erros 400, 401, 403 e 404.
 
 <br>
 

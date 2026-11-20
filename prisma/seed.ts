@@ -110,10 +110,12 @@ try {
                 where: { id: lote.id },
                 create: {
                     ...lote, organizacaoId: organizacaoAtiva.id, transportadora: "Transportadora Exemplo",
+                    ...(lote.statusProcessamento === "TRIAGEM_CONCLUIDA" ? { triagemConcluidaEm: diasAtras(4), operadorTriagem: "operador-demo" } : {}),
                     observacoes: "Registro criado pelo seed de demonstração",
                 },
                 update: {
                     ...lote, organizacaoId: organizacaoAtiva.id, transportadora: "Transportadora Exemplo",
+                    ...(lote.statusProcessamento === "TRIAGEM_CONCLUIDA" ? { triagemConcluidaEm: diasAtras(4), operadorTriagem: "operador-demo" } : {}),
                     observacoes: "Registro criado pelo seed de demonstração", ativo: true,
                 },
             });

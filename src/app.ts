@@ -13,6 +13,9 @@ import { registrarRotasUsuario } from "./routes/usuarios.js";
 import { registrarRotasAuth } from "./routes/auth.js";
 import { registrarRotasRelatorio } from "./routes/relatorios.js";
 import { esquemasOpenApi } from "./routes/openapi.js";
+import { registrarApiPublica } from "./routes/public.js";
+import { apiKeyService } from "./services/api-key.service.js";
+import { autenticar, exigirPapeis } from "./plugins/auth.js";
 
 // Monta o servidor, plugins E todos os grupos de rotas.
 export async function criarAplicacao() {
@@ -40,6 +43,11 @@ export async function criarAplicacao() {
         },
     });
     await app.register(fastifySwaggerUi, { routePrefix: "/docs" });
+    await registrarApiPublica(app);
+    app.post("/api/v1/internal/chaves", { preHandler: [autenticar, exigirPapeis("ADMINISTRADOR")] }, async (request) => { const body=request.body as {parceiro:string;permissoes:string[]}; return apiKeyService.criar(body.parceiro,body.permissoes); });
+    app.get("/api/v1/internal/chaves", { preHandler: [autenticar, exigirPapeis("ADMINISTRADOR")] }, () => apiKeyService.listar());
+    app.delete("/api/v1/internal/chaves/:id", { preHandler: [autenticar, exigirPapeis("ADMINISTRADOR")] }, (request) => apiKeyService.revogar((request.params as {id:string}).id));
+    app.post("/api/v1/internal/chaves/:id/rotacionar", { preHandler: [autenticar, exigirPapeis("ADMINISTRADOR")] }, (request) => apiKeyService.rotacionar((request.params as {id:string}).id));
     await registrarRotaSaude(app);
     await registrarRotasAuth(app);
     await registrarRotasRelatorio(app);
