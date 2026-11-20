@@ -54,7 +54,12 @@ enum StatusRastreamento {
   BAIXA_DEFINITIVA
 }
 
-enum StatusJob { PENDENTE EM_PROCESSAMENTO CONCLUIDO FALHOU }
+enum StatusJob {
+  PENDENTE
+  EM_PROCESSAMENTO
+  CONCLUIDO
+  FALHOU
+}
 
 model Usuario {
   id           String       @id @default(uuid())

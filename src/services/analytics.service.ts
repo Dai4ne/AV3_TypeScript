@@ -5,13 +5,17 @@ export const analyticsService = {
   async eficiencia() {
     const lotes = await prisma.lote.findMany({ where: { ativo: true, triagemConcluidaEm: { not: null } }, select: { id: true, dataEntrada: true, triagemConcluidaEm: true, operadorTriagem: true } });
     const registros = lotes.map(l => ({ loteId:l.id, operador:l.operadorTriagem, mes:l.triagemConcluidaEm!.getUTCMonth()+1, horas:(l.triagemConcluidaEm!.getTime()-l.dataEntrada.getTime())/3600000 }));
-    const grupos = (chave: (r: typeof registros[number]) => string) => Object.entries(Object.groupBy(registros, chave)).map(([grupo, itens]) => ({ grupo, lotes:itens!.length, mediaHoras:Number(mean(itens!.map(i=>i.horas)).toFixed(2)), desvioHoras:Number((itens!.length>1?standardDeviation(itens!.map(i=>i.horas)):0).toFixed(2)) }));
+    const grupos = (chave: (r: typeof registros[number]) => string) => {
+      const agrupados = new Map<string, typeof registros>();
+      for (const registro of registros) { const grupo=chave(registro); agrupados.set(grupo,[...(agrupados.get(grupo)??[]),registro]); }
+      return [...agrupados].map(([grupo,itens])=>({grupo,lotes:itens.length,mediaHoras:Number(mean(itens.map(i=>i.horas)).toFixed(2)),desvioHoras:Number((itens.length>1?standardDeviation(itens.map(i=>i.horas)):0).toFixed(2))}));
+    };
     return { quantidadeLotes:registros.length, mediaHoras:registros.length?Number(mean(registros.map(r=>r.horas)).toFixed(2)):null, porOperador:grupos(r=>r.operador??"Não informado"), porMes:grupos(r=>String(r.mes).padStart(2,"0")), observacao:"Gargalos são períodos ou operadores acima da média geral." };
   },
   async rentabilidade() {
     const items=await prisma.equipamento.findMany({where:{ativo:true},include:{historicoValores:{where:{valorRecuperacao:{not:null}},orderBy:{dataHora:"desc"},take:1}}});
     const rows=items.filter(x=>x.historicoValores[0]).map(x=>({estado:x.estadoFisico,marca:x.marca,modelo:x.modelo,valor:Number(x.historicoValores[0]!.valorRecuperacao)}));
-    const grupos=(fn:(x:typeof rows[number])=>string)=>Object.entries(Object.groupBy(rows,fn)).map(([grupo,x])=>({grupo,amostras:x!.length,valorMedio:Number(mean(x!.map(y=>y.valor)).toFixed(2))}));
+    const grupos=(fn:(x:typeof rows[number])=>string)=>{const agrupados=new Map<string,typeof rows>();for(const row of rows){const chave=fn(row);agrupados.set(chave,[...(agrupados.get(chave)??[]),row]);}return [...agrupados].map(([grupo,x])=>({grupo,amostras:x.length,valorMedio:Number(mean(x.map(y=>y.valor)).toFixed(2))}));};
     return { porEstado:grupos(x=>x.estado), porMarca:grupos(x=>x.marca), porModelo:grupos(x=>`${x.marca} ${x.modelo}`) };
   },
   async vidaUtil() {

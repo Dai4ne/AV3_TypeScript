@@ -28,6 +28,11 @@ export function respostas(
 }
 
 export const esquemasOpenApi = {
+    ChaveApiCriada: { type:"object", required:["id","parceiro","permissoes","chave"], properties:{id:{type:"string",format:"uuid"},parceiro:{type:"string",example:"Parceiro Exemplo"},permissoes:{type:"array",items:{type:"string",enum:["rastreabilidade:read","lotes:write","analises:read"]}},chave:{type:"string",description:"Exibida somente na criação ou rotação.",example:"gc_..."}} },
+    LotePublicoEntrada: { type:"object",additionalProperties:false,required:["id","organizacaoId","notaFiscal","transportadora"],properties:{id:{type:"string",example:"PARC-LOTE-001"},organizacaoId:{type:"string"},notaFiscal:{type:"string"},transportadora:{type:"string"},equipamentos:{type:"array",items:{type:"object",required:["id","tipo","marca","modelo","anoFabricacao","estadoFisico","pesoQuilogramas"],properties:{id:{type:"string"},tipo:{type:"string",enum:["COMPUTADOR_MESA","NOTEBOOK","MONITOR","IMPRESSORA","SERVIDOR","ROTEADOR","CABO_ESTRUTURADO","FONTE_ALIMENTACAO"]},marca:{type:"string"},modelo:{type:"string"},anoFabricacao:{type:"integer",minimum:1900},estadoFisico:{type:"string",enum:["NOVO","BOM_ESTADO","USADO_LEVE","USADO_MODERADO","DANIFICADO_LEVE","DANIFICADO_GRAVE","INSERVIVEL"]},pesoQuilogramas:{type:"number",exclusiveMinimum:0}}}}} },
+    JobCriacao: { type:"object",required:["analise"],properties:{analise:{type:"string",enum:["eficiencia","rentabilidade","vidaUtil"],example:"eficiencia"}} },
+    JobRelatorio: { type:"object",required:["id","tipo","status","parametros","criadoEm"],properties:{id:{type:"string",format:"uuid"},tipo:{type:"string"},status:{type:"string",enum:["PENDENTE","EM_PROCESSAMENTO","CONCLUIDO","FALHOU"]},parametros:{type:"object"},resultado:{type:"object",nullable:true},erro:{type:"string",nullable:true},criadoEm:{type:"string",format:"date-time"}} },
+    Erro429: { type:"object",required:["statusCode","error","message"],properties:{statusCode:{type:"integer",example:429},error:{type:"string",example:"Too Many Requests"},message:{type:"string"}} },
     Erro: { oneOf: [{ $ref: "#/components/schemas/ErroDominio" }, { $ref: "#/components/schemas/ErroFastify" }] },
     ErroDominio: {
         type: "object", additionalProperties: false, required: ["erro"],
