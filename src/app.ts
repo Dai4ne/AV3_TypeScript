@@ -12,14 +12,14 @@ import { registrarRotasEquipamento } from "./routes/equipamentos.js";
 import { registrarRotasUsuario } from "./routes/usuarios.js";
 import { registrarRotasAuth } from "./routes/auth.js";
 import { registrarRotasRelatorio } from "./routes/relatorios.js";
-import { esquemasOpenApi, materializarEsquema } from "./routes/openapi.js";
+import { esquemasOpenApi } from "./routes/openapi.js";
 import { registrarApiPublica } from "./routes/public.js";
-import { apiKeyService } from "./services/api-key.service.js";
-import { autenticar, exigirPapeis } from "./plugins/auth.js";
+import { registrarApiInterna } from "./routes/internal.js";
 
 // Monta o servidor, plugins E todos os grupos de rotas.
 export async function criarAplicacao() {
-    const app = Fastify({ logger: true });
+    // `example` é metadado OpenAPI; AJV deve ignorá-lo sem afrouxar os campos de validação.
+    const app = Fastify({ logger: true, ajv: { customOptions: { strict: false } } });
     await app.register(fastifyJwt, { secret: configuracao.jwtSecret });
     await app.register(fastifySwagger, {
         openapi: {
@@ -46,11 +46,7 @@ export async function criarAplicacao() {
     });
     await app.register(fastifySwaggerUi, { routePrefix: "/docs" });
     await registrarApiPublica(app);
-    const admin={preHandler:[autenticar,exigirPapeis("ADMINISTRADOR")],schema:{tags:["API interna v1"],security:[{bearerAuth:[]}],response:{401:{description:"JWT ausente, inválido ou expirado."},403:{description:"Apenas administradores."}}}};
-    app.post("/api/v1/internal/chaves", { ...admin,schema:{...admin.schema,summary:"Criar chave de parceiro",description:"Permissões aceitas: rastreabilidade:read, lotes:write, analises:read. A chave completa é retornada uma única vez.",body:{type:"object",additionalProperties:false,required:["parceiro","permissoes"],properties:{parceiro:{type:"string",minLength:1,example:"Parceiro Exemplo"},permissoes:{type:"array",minItems:1,uniqueItems:true,items:{type:"string",enum:["rastreabilidade:read","lotes:write","analises:read"]}}}},response:{...admin.schema.response,201:{description:"Chave criada.",content:{"application/json":{schema:materializarEsquema("#/components/schemas/ChaveApiCriada")}}}}} }, async (request,reply) => { const body=request.body as {parceiro:string;permissoes:string[]}; return reply.code(201).send(await apiKeyService.criar(body.parceiro,body.permissoes)); });
-    app.get("/api/v1/internal/chaves", { ...admin,schema:{...admin.schema,summary:"Listar chaves",description:"Lista metadados sem revelar hashes ou segredos."} }, () => apiKeyService.listar());
-    app.delete("/api/v1/internal/chaves/:id", { ...admin,schema:{...admin.schema,summary:"Revogar chave",params:{type:"object",required:["id"],properties:{id:{type:"string",format:"uuid"}}},response:{...admin.schema.response,200:{description:"Chave revogada."},404:{description:"Chave inexistente."}}} }, (request) => apiKeyService.revogar((request.params as {id:string}).id));
-    app.post("/api/v1/internal/chaves/:id/rotacionar", { ...admin,schema:{...admin.schema,summary:"Rotacionar chave",description:"Cria uma nova chave com as mesmas permissões e revoga a atual.",params:{type:"object",required:["id"],properties:{id:{type:"string",format:"uuid"}}},response:{...admin.schema.response,200:{description:"Nova chave; o segredo é exibido somente nesta resposta.",content:{"application/json":{schema:materializarEsquema("#/components/schemas/ChaveApiCriada")}}},404:{description:"Chave inexistente."}}} }, (request) => apiKeyService.rotacionar((request.params as {id:string}).id));
+    await registrarApiInterna(app);
     await registrarRotaSaude(app);
     await registrarRotasAuth(app);
     await registrarRotasRelatorio(app);

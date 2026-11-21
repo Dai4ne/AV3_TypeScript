@@ -143,6 +143,26 @@ try {
                 },
             });
 
+            const valoresDemo = [
+                { id: `DEMO-VALOR-${equipamento.id}-1`, dataHora: diasAtras(180), fator: 1.0, recuperacao: null },
+                { id: `DEMO-VALOR-${equipamento.id}-2`, dataHora: diasAtras(90), fator: 0.72, recuperacao: null },
+                { id: `DEMO-VALOR-${equipamento.id}-3`, dataHora: diasAtras(10), fator: 0.48, recuperacao: equipamento.statusRastreamento === "BAIXA_DEFINITIVA" ? 350 + posicaoNoLote * 125 : null },
+            ];
+            const valorBase = equipamento.peso * 180;
+            for (const valor of valoresDemo) {
+                await tx.historicoValorEquipamento.upsert({
+                    where: { id: valor.id },
+                    create: { id: valor.id, equipamentoId: equipamento.id, dataHora: valor.dataHora, valorEstimado: valorBase * valor.fator, valorRecuperacao: valor.recuperacao, motivo: "Medição demonstrativa para análise AV3" },
+                    update: { dataHora: valor.dataHora, valorEstimado: valorBase * valor.fator, valorRecuperacao: valor.recuperacao, motivo: "Medição demonstrativa para análise AV3" },
+                });
+            }
+            const falhaId = `DEMO-FALHA-${equipamento.id}`;
+            await tx.falhaEquipamento.upsert({
+                where: { id: falhaId },
+                create: { id: falhaId, equipamentoId: equipamento.id, dataHora: diasAtras(60), descricao: "Falha de demonstração", custo: equipamento.peso * 12 },
+                update: { dataHora: diasAtras(60), descricao: "Falha de demonstração", custo: equipamento.peso * 12 },
+            });
+
             if (equipamento.statusRastreamento !== "AGUARDANDO_TRIAGEM") {
                 const idMovimentacao = `DEMO-MOV-${equipamento.id}`;
                 await tx.movimentacao.upsert({
@@ -163,7 +183,7 @@ try {
         }
     });
 
-    console.log("Dados de exemplo criados ou atualizados: organizações, contratos, lotes, equipamentos e movimentações.");
+    console.log("Dados de exemplo criados ou atualizados: organizações, contratos, lotes, equipamentos, movimentações, histórico de valores e falhas.");
 } finally {
     await prisma.$disconnect();
 }
