@@ -43,6 +43,7 @@ const equipamentos = [
     { id: "DEMO-EQ-FINALIZADO-01", loteId: lotes[3].id, tipo: "ROTEADOR" as const, estadoFisico: "INSERVIVEL" as const, statusRastreamento: "DESCARTE_SEGURO" as const, peso: 1.2 },
     { id: "DEMO-EQ-CONCLUIDO-01", loteId: lotes[4].id, tipo: "SERVIDOR" as const, estadoFisico: "DANIFICADO_GRAVE" as const, statusRastreamento: "BAIXA_DEFINITIVA" as const, peso: 12.5 },
 ];
+const ordemEstados = ["NOVO", "BOM_ESTADO", "USADO_LEVE", "USADO_MODERADO", "DANIFICADO_LEVE", "DANIFICADO_GRAVE", "INSERVIVEL"] as const;
 
 // Cria o administrador inicial e os dados de demonstração sem importar a AV1.
 try {
@@ -144,16 +145,18 @@ try {
             });
 
             const valoresDemo = [
-                { id: `DEMO-VALOR-${equipamento.id}-1`, dataHora: diasAtras(180), fator: 1.0, recuperacao: null },
-                { id: `DEMO-VALOR-${equipamento.id}-2`, dataHora: diasAtras(90), fator: 0.72, recuperacao: null },
-                { id: `DEMO-VALOR-${equipamento.id}-3`, dataHora: diasAtras(10), fator: 0.48, recuperacao: equipamento.statusRastreamento === "BAIXA_DEFINITIVA" ? 350 + posicaoNoLote * 125 : null },
+                { id: `DEMO-VALOR-${equipamento.id}-1`, dataHora: diasAtras(180), fator: 1.0, recuperacao: null, passoEstado: -2 },
+                { id: `DEMO-VALOR-${equipamento.id}-2`, dataHora: diasAtras(90), fator: 0.72, recuperacao: null, passoEstado: -1 },
+                { id: `DEMO-VALOR-${equipamento.id}-3`, dataHora: diasAtras(10), fator: 0.48, recuperacao: equipamento.statusRastreamento === "BAIXA_DEFINITIVA" ? 350 + posicaoNoLote * 125 : null, passoEstado: 0 },
             ];
             const valorBase = equipamento.peso * 180;
+            const indiceEstadoAtual = ordemEstados.indexOf(equipamento.estadoFisico);
             for (const valor of valoresDemo) {
+                const estadoHistorico = ordemEstados[Math.max(0, indiceEstadoAtual + valor.passoEstado)];
                 await tx.historicoValorEquipamento.upsert({
                     where: { id: valor.id },
-                    create: { id: valor.id, equipamentoId: equipamento.id, dataHora: valor.dataHora, valorEstimado: valorBase * valor.fator, valorRecuperacao: valor.recuperacao, motivo: "Medição demonstrativa para análise AV3" },
-                    update: { dataHora: valor.dataHora, valorEstimado: valorBase * valor.fator, valorRecuperacao: valor.recuperacao, motivo: "Medição demonstrativa para análise AV3" },
+                    create: { id: valor.id, equipamentoId: equipamento.id, dataHora: valor.dataHora, valorEstimado: valorBase * valor.fator, valorRecuperacao: valor.recuperacao, estadoFisico: estadoHistorico, motivo: "Medição demonstrativa para análise AV3" },
+                    update: { dataHora: valor.dataHora, valorEstimado: valorBase * valor.fator, valorRecuperacao: valor.recuperacao, estadoFisico: estadoHistorico, motivo: "Medição demonstrativa para análise AV3" },
                 });
             }
             const falhaId = `DEMO-FALHA-${equipamento.id}`;

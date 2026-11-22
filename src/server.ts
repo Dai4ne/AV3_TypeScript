@@ -5,7 +5,7 @@ import { executarAnalise } from "./services/analytics.service.js";
 
 // Inicializa o servidor usando os valores do arquivo .env.
 const app = await criarAplicacao();
-const tarefaAnalitica = cron.schedule("0 2 * * *", async () => { for (const nome of ["eficiencia", "rentabilidade", "vidaUtil"]) { try { await executarAnalise(nome); } catch (erro) { app.log.error(erro); } } }, { timezone: "America/Sao_Paulo" });
+const tarefaAnalitica = cron.schedule("0 2 * * *", async () => { for (const nome of ["eficiencia", "rentabilidade", "vidaUtil"] as const) { try { await executarAnalise(nome); } catch (erro) { app.log.error(erro); } } }, { timezone: "America/Sao_Paulo" });
 
 try {
     await app.listen({ host: configuracao.host, port: configuracao.port });
