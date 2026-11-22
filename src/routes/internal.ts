@@ -3,6 +3,7 @@ import { autenticar, exigirPapeis } from "../plugins/auth.js";
 import { apiKeyService } from "../services/api-key.service.js";
 import { executarAnalise, historicoAnaliticoService } from "../services/analytics.service.js";
 import { materializarEsquema } from "./openapi.js";
+import { jobsService } from "../services/jobs.service.js";
 
 const permissoes = ["rastreabilidade:read", "lotes:write", "analises:read"];
 
@@ -124,5 +125,12 @@ export async function registrarApiInterna(app: FastifyInstance): Promise<void> {
     }, async request => {
         const query = request.query as { equipamentoId?: string };
         return historicoAnaliticoService.comparacoesVidaUtil(query.equipamentoId);
+    });
+
+    app.get("/api/v1/internal/relatorios/dead-letter", {
+        ...admin,
+        schema: { ...admin.schema, summary: "Inspecionar relatórios esgotados", description: "Lista até 100 jobs falhos persistidos no PostgreSQL.", response: { ...admin.schema.response, 200: { description: "Jobs esgotados; estes registros formam a dead-letter." } } },
+    }, async (_request, reply) => {
+        return reply.send(await jobsService.listarDeadLetter());
     });
 }

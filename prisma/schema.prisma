@@ -219,13 +219,21 @@ model PrevisaoVidaUtil {
 model JobRelatorio {
   id String @id @default(uuid())
   tipo String
+  formato String @default("JSON")
+  parceiro String?
   status StatusJob @default(PENDENTE)
   parametros Json
   resultado Json?
   erro String?
   arquivo String?
   tentativas Int @default(0)
+  proximaExecucao DateTime @default(now()) @db.Timestamptz(3)
+  lockedAt DateTime? @db.Timestamptz(3)
+  workerId String?
   criadoEm DateTime @default(now())
   atualizadoEm DateTime @updatedAt
   @@index([status, criadoEm])
+  @@index([parceiro, criadoEm])
+  @@index([status, proximaExecucao, criadoEm])
+  @@index([lockedAt])
 }

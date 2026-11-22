@@ -21,6 +21,7 @@ Os dados da AV1 **não** são importados. A AV3 começa com os mesmos registros 
 11. [Comandos úteis](#comandos-úteis)
 12. [Problemas comuns](#problemas-comuns)
 13. [API pública e análises AV3](#api-pública-e-análises-av3)
+14. [Fila e worker de relatórios](#fila-e-worker-de-relatórios)
 
 ## 🔧Ferramentas necessárias
 
@@ -135,6 +136,11 @@ Faça estes passos na pasta raiz do repositório (onde está o `package.json`).
    | `PORT` | não (padrão `3000`) | porta da API |
    | `ADMIN_USER` | sim para o seed | login do primeiro administrador |
    | `ADMIN_PASSWORD` | sim para o seed | senha do primeiro administrador |
+   | `REPORTS_DIR` | não | destino dos arquivos CSV/JSON (padrão `data/reports`) |
+   | `REPORT_WORKER_CONCURRENCY` | não | jobs processados em paralelo pelo worker PostgreSQL (padrão `2`) |
+   | `REPORT_WORKER_POLL_MS` | não | intervalo entre consultas de jobs (padrão `1000`) |
+   | `REPORT_JOB_MAX_ATTEMPTS` | não | tentativas totais antes de falha final (padrão `5`) |
+   | `REPORT_JOB_LOCK_TIMEOUT_MS` | não | lease do worker para recuperação após parada inesperada (padrão `600000`) |
 
    Exemplo (troque senha, chave JWT e senha do admin):
 
@@ -190,16 +196,20 @@ As rotas públicas v1 usam `X-API-Key`; as rotas legadas continuam disponíveis 
 - `GET /api/v1/public/rastreabilidade/:codigo`
 - `POST /api/v1/public/lotes`
 - `GET /api/v1/public/analises/eficiencia|rentabilidade|vida-util`
-- `POST /api/v1/public/relatorios` com `{ "analise": "eficiencia" }` (retorna 202 e ID); `GET /api/v1/public/relatorios/:id` consulta status/resultado.
+- `POST /api/v1/public/relatorios` com `{ "analise": "eficiencia", "formato": "CSV" }` (formato opcional: `JSON` ou `CSV`; retorna 202 e ID); `GET /api/v1/public/relatorios/:id` consulta o status; `GET /api/v1/public/relatorios/:id/download` baixa o arquivo quando concluído.
 - `GET /api/v1/internal/analises/{eficiencia,rentabilidade,vida-util}` (JWT)
 
 Eficiência considera horas entre entrada e conclusão do lote e agrupa por operador e mês-calendário, exibindo média, desvio padrão e grupos acima da média geral como gargalos. Rentabilidade calcula recuperação média a partir do último valor de recuperação por equipamento, agrupada por tipo, estado físico, marca e modelo. Vida útil registra o estado físico em cada medição e usa regressão linear por mínimos quadrados sobre a escala ordinal dos estados para projetar a data de chegada a `INSERVIVEL`; sem histórico suficiente ou tendência de piora, informa que não há projeção. `simple-statistics` oferece implementações pequenas e focadas de média, desvio padrão e regressão, sem introduzir uma biblioteca matemática genérica.
 
 As análises internas são executadas sob demanda e também diariamente às 02:00 no fuso `America/Sao_Paulo`. `GET /api/v1/internal/analises/historico?analise=vidaUtil&limite=20` consulta execuções e resultados persistidos. Cada previsão gera uma linha em `PrevisaoVidaUtil`; quando uma medição registra `INSERVIVEL`, previsões anteriores do equipamento recebem a data real e erro assinado em dias. Consulte `GET /api/v1/internal/analises/vida-util/comparacoes?equipamentoId=...` para comparar previsão e ocorrência.
 
-`ExecucaoAnalitica` guarda parâmetros, início, conclusão e resultado JSON para histórico e avaliação posterior. `HistoricoValorEquipamento` e `FalhaEquipamento` preservam medições e falhas. `JobRelatorio` mantém estado, parâmetros, resultado, erro e tentativas. Com `REDIS_URL` configurada, BullMQ usa até 5 tentativas com backoff exponencial iniciado em 1 segundo e mantém falhas esgotadas para inspeção; `RUN_REPORT_WORKER=true` inicia um worker. Sem Redis, os jobs rodam em segundo plano no processo da API. As análises também são agendadas diariamente às 02:00 (America/Sao_Paulo).
+`ExecucaoAnalitica` guarda parâmetros, início, conclusão e resultado JSON para histórico e avaliação posterior. `HistoricoValorEquipamento` e `FalhaEquipamento` preservam medições e falhas. `JobRelatorio` mantém estado, formato, parceiro, parâmetros, resultado, erro, tentativas, agendamento de retry e lease do worker. O PostgreSQL funciona como fila persistente; os workers reivindicam jobs com `FOR UPDATE SKIP LOCKED`, podendo haver múltiplos workers sem processar o mesmo job simultaneamente. São feitas até 5 tentativas com backoff exponencial iniciado em 1 segundo. Após esgotar as tentativas, o job permanece com status `FALHOU` e pode ser inspecionado na dead-letter em PostgreSQL. As análises também são agendadas diariamente às 02:00 (America/Sao_Paulo).
 
-As chaves e rotas estão versionadas por URL; clientes antigos devem migrar para v1 antes de eventual v2. Para escalar, executar múltiplos workers BullMQ, particionar histórico por data/parceiro, cachear agregados por período, aplicar cotas de rate limit por plano e usar réplicas de leitura para relatórios. A API pública deve ser publicada com exemplos e schemas OpenAPI; todo endpoint v1 deve incluir exemplos de sucesso e erros 400, 401, 403 e 404.
+## Fila e worker de relatórios
+
+O worker usa a tabela `JobRelatorio` no PostgreSQL, então não requer Redis nem outro serviço instalado. Execute em terminais separados `npm run dev` e `npm run worker`. O worker consulta a fila a cada segundo por padrão, com concorrência 2; ambos são configuráveis pelo `.env`. Um lease de 10 minutos é renovado enquanto o relatório é processado; se o worker parar inesperadamente, outro worker devolve jobs expirados à fila ou os marca como falhos quando as tentativas já se esgotaram. Os arquivos são gravados em `data/reports` (ou em `REPORTS_DIR`) e esse diretório é ignorado pelo Git. Solicite o job com `POST /api/v1/public/relatorios`, acompanhe o estado por polling no endpoint de status e baixe em `/download` quando estiver `CONCLUIDO`. Jobs e downloads são isolados pelo parceiro autenticado; retries usam backoff exponencial (1s, 2s, 4s, 8s, até cinco tentativas). A dead-letter mantém os registros `FALHOU` no PostgreSQL para inspeção via `/api/v1/internal/relatorios/dead-letter`.
+
+As chaves e rotas estão versionadas por URL; clientes antigos devem migrar para v1 antes de eventual v2. Para escalar, executar múltiplos workers PostgreSQL, particionar histórico por data/parceiro, cachear agregados por período, aplicar cotas de rate limit por plano e usar réplicas de leitura para relatórios. A API pública deve ser publicada com exemplos e schemas OpenAPI; todo endpoint v1 deve incluir exemplos de sucesso e erros 400, 401, 403 e 404.
 
 <br>
 
