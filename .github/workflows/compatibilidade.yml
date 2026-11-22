@@ -1,0 +1,31 @@
+name: Compatibilidade AV3
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validar-e-compilar:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    env:
+      DATABASE_URL: postgresql://greencode:greencode@localhost:5432/greencode?schema=public
+    steps:
+      - name: Baixar o projeto
+        uses: actions/checkout@v4
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Instalar dependências
+        run: npm ci
+      - name: Gerar Prisma Client
+        run: npm run db:generate
+      - name: Validar schema Prisma
+        run: npm run db:validate
+      - name: Compilar TypeScript
+        run: npm run build

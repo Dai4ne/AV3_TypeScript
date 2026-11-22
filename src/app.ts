@@ -23,7 +23,7 @@ export async function criarAplicacao() {
     await app.register(fastifyJwt, { secret: configuracao.jwtSecret });
     await app.register(fastifySwagger, {
         openapi: {
-            info: { title: "GreenCode API", description: "API REST de logística reversa de eletrônicos. Rotas protegidas exigem JWT Bearer. O administrador acessa todas as rotas protegidas; os demais papéis seguem as permissões descritas em cada grupo.", version: "1.0.0" },
+            info: { title: "GreenCode API", description: "API REST de logística reversa de eletrônicos. Integrações usam /api/v1/public com chave de API; operações internas usam /api/v1/internal com JWT. As rotas antigas da AV2 permanecem como aliases protegidos durante a transição.", version: "1.0.0" },
             components: {
                 securitySchemes: { bearerAuth: { type: "http", scheme: "bearer", bearerFormat: "JWT" }, apiKeyAuth: { type:"apiKey",in:"header",name:"X-API-Key",description:"Chave individual do parceiro. Permissões: rastreabilidade:read, lotes:write, analises:read." } },
                 schemas: esquemasOpenApi as any,
@@ -49,12 +49,19 @@ export async function criarAplicacao() {
     await registrarApiInterna(app);
     await registrarRotaSaude(app);
     await registrarRotasAuth(app);
+    // Mantém os caminhos da AV2 e oferece seus equivalentes internos versionados.
     await registrarRotasRelatorio(app);
     await registrarRotasUsuario(app);
     await registrarRotasOrganizacao(app);
     await registrarRotasContrato(app);
     await registrarRotasLote(app);
     await registrarRotasEquipamento(app);
+    await app.register(registrarRotasRelatorio, { prefix: "/api/v1/internal" });
+    await app.register(registrarRotasUsuario, { prefix: "/api/v1/internal" });
+    await app.register(registrarRotasOrganizacao, { prefix: "/api/v1/internal" });
+    await app.register(registrarRotasContrato, { prefix: "/api/v1/internal" });
+    await app.register(registrarRotasLote, { prefix: "/api/v1/internal" });
+    await app.register(registrarRotasEquipamento, { prefix: "/api/v1/internal" });
     app.addHook("onClose", async () => { await prisma.$disconnect(); });
     return app;
 }

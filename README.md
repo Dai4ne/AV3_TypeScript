@@ -29,7 +29,7 @@ Os dados da AV1 **não** são importados. A AV3 começa com os mesmos registros 
 | Ferramenta | Versão mínima | Para que serve |
 | --- | --- | --- |
 | [Git](https://git-scm.com/) | qualquer recente | clonar o repositório |
-| [Node.js](https://nodejs.org/) | **18.18 ou superior** (recomendado **20 LTS** ou **22 LTS**) | executar a API |
+| [Node.js](https://nodejs.org/) | **20 ou superior** (recomendado **20 LTS** ou **22 LTS**) | executar a API |
 | npm | vem com o Node.js | instalar dependências e rodar scripts |
 | [PostgreSQL](https://www.postgresql.org/download/) | **14 ou superior** | banco de dados |
 | Editor (VS Code, Cursor ou similar) | — | editar código e enviar o roteiro HTTP |
@@ -68,7 +68,9 @@ Não é obrigatório Docker. Prisma Studio (`npm run db:studio`) é opcional e a
        npm -v
        psql --version
 
-Em outras distribuições, instale Node.js 18.18+ e PostgreSQL 14+ pelos gerenciadores da distro. No Linux, o motor do Prisma também precisa das bibliotecas OpenSSL do sistema (em Ubuntu costumam vir com `ca-certificates` / `libssl`).
+Compatibilidade-alvo: Windows 10 ou superior, Ubuntu 24.04.3 ou superior e distribuições Linux derivadas do Ubuntu. Em outras distribuições, instale Node.js 20+ e PostgreSQL 14+ pelos gerenciadores da distro. No Linux, o motor do Prisma também precisa das bibliotecas OpenSSL do sistema (em Ubuntu costumam vir com `ca-certificates` / `libssl`).
+
+O workflow `.github/workflows/compatibilidade.yml` valida o schema Prisma e compila o projeto em Windows Server 2022 e Ubuntu 24.04 a cada push ou pull request. Ele não precisa de conexão ativa com PostgreSQL; a validação ponta a ponta da aplicação ainda requer o banco local.
 
 <br>
 
@@ -192,7 +194,7 @@ Para produção local, depois do `npm run dev` funcionar:
 
 ## API pública e análises AV3
 
-As rotas públicas v1 usam `X-API-Key`; as rotas legadas continuam disponíveis para compatibilidade interna durante a transição. O administrador cria/lista/revoga/rotaciona chaves em `/api/v1/internal/chaves` usando JWT. A chave completa aparece apenas na criação/rotação; o banco armazena SHA-256. Permissões disponíveis: `rastreabilidade:read`, `lotes:write`, `analises:read`. Rate limit padrão: 120 req/minuto por chave. A versão v1 será mantida por pelo menos 12 meses após a publicação de uma v2; a descontinuação terá aviso e data de remoção documentada com antecedência mínima de 90 dias.
+As rotas públicas v1 usam `X-API-Key`. As operações internas e administrativas também estão disponíveis em `/api/v1/internal`, protegidas por JWT e pelos papéis exigidos em cada operação. Os caminhos originais da AV2 continuam disponíveis como aliases protegidos durante a transição; novas integrações devem usar os prefixos versionados. A retirada de qualquer rota legada será anunciada com pelo menos 90 dias de antecedência. O administrador cria/lista/revoga/rotaciona chaves em `/api/v1/internal/chaves` usando JWT. A chave completa aparece apenas na criação/rotação; o banco armazena SHA-256. Permissões disponíveis: `rastreabilidade:read`, `lotes:write`, `analises:read`. Rate limit padrão: 120 req/minuto por chave. Cada versão será mantida por pelo menos 12 meses após a publicação da seguinte; a descontinuação terá aviso e data de remoção documentada com antecedência mínima de 90 dias.
 
 - `GET /api/v1/public/rastreabilidade/:codigo`
 - `POST /api/v1/public/lotes`
@@ -200,7 +202,7 @@ As rotas públicas v1 usam `X-API-Key`; as rotas legadas continuam disponíveis 
 - `POST /api/v1/public/relatorios` com `{ "analise": "eficiencia", "formato": "CSV" }` (formato opcional: `JSON` ou `CSV`; retorna 202 e ID); `GET /api/v1/public/relatorios/:id` consulta o status; `GET /api/v1/public/relatorios/:id/download` baixa o arquivo quando concluído.
 - `GET /api/v1/internal/analises/{eficiencia,rentabilidade,vida-util}` (JWT)
 
-Eficiência considera horas entre entrada e conclusão do lote e agrupa por operador e mês-calendário, exibindo média, desvio padrão e grupos acima da média geral como gargalos. Rentabilidade calcula recuperação média a partir do último valor de recuperação por equipamento, agrupada por tipo, estado físico, marca e modelo. Vida útil registra o estado físico em cada medição e usa regressão linear por mínimos quadrados sobre a escala ordinal dos estados para projetar a data de chegada a `INSERVIVEL`; sem histórico suficiente ou tendência de piora, informa que não há projeção. `simple-statistics` oferece implementações pequenas e focadas de média, desvio padrão e regressão, sem introduzir uma biblioteca matemática genérica.
+Eficiência considera horas entre entrada e conclusão do lote e agrupa por operador e mês-calendário, exibindo média, desvio padrão e grupos acima da média geral como gargalos. Rentabilidade calcula recuperação média a partir do último valor de recuperação por equipamento, agrupada por tipo, estado físico, marca e modelo. Vida útil usa regressão linear por mínimos quadrados em um índice que combina estado físico, depreciação relativa do valor estimado e falhas registradas para projetar a data de chegada a `INSERVIVEL`. Como as falhas ainda não têm severidade padronizada, cada falha registrada após uma medição representa um avanço ordinal no índice; essa hipótese está detalhada no relatório técnico. Sem histórico suficiente ou tendência de degradação positiva, o serviço não informa uma projeção. `simple-statistics` oferece implementações pequenas e focadas de média, desvio padrão e regressão, sem introduzir uma biblioteca matemática genérica.
 
 As análises internas são executadas sob demanda e também diariamente às 02:00 no fuso `America/Sao_Paulo`. `GET /api/v1/internal/analises/historico?analise=vidaUtil&limite=20` consulta execuções e resultados persistidos. Cada previsão gera uma linha em `PrevisaoVidaUtil`; quando uma medição registra `INSERVIVEL`, previsões anteriores do equipamento recebem a data real e erro assinado em dias. Consulte `GET /api/v1/internal/analises/vida-util/comparacoes?equipamentoId=...` para comparar previsão e ocorrência.
 
@@ -212,9 +214,9 @@ O worker usa a tabela `JobRelatorio` no PostgreSQL, então não requer Redis nem
 
 ## Relatório técnico da AV3
 
-O documento [RELATORIO_TECNICO_AV3.md](RELATORIO_TECNICO_AV3.md) registra a biblioteca estatística e sua justificativa, a modelagem analítica e de jobs, a política de retry e dead-letter, a depreciação da API e as opções para escalar a arquitetura.
+O Swagger em `/docs` documenta corpos de requisição e respostas com exemplos completos, os parâmetros e os códigos de erro das rotas públicas. O documento [RELATORIO_TECNICO_AV3.md](RELATORIO_TECNICO_AV3.md) registra a biblioteca estatística e sua justificativa, a modelagem analítica e de jobs, a política de retry e dead-letter, a depreciação da API e as opções para escalar a arquitetura.
 
-As chaves e rotas estão versionadas por URL; clientes antigos devem migrar para v1 antes de eventual v2. Para escalar, executar múltiplos workers PostgreSQL, particionar histórico por data/parceiro, cachear agregados por período, aplicar cotas de rate limit por plano e usar réplicas de leitura para relatórios. A API pública deve ser publicada com exemplos e schemas OpenAPI; todo endpoint v1 deve incluir exemplos de sucesso e erros 400, 401, 403 e 404.
+As chaves e rotas estão versionadas por URL; clientes antigos devem migrar para v1 antes de eventual v2. Para escalar, executar múltiplos workers PostgreSQL, particionar histórico por data/parceiro, cachear agregados por período, aplicar cotas de rate limit por plano e usar réplicas de leitura para relatórios. A API pública documenta exemplos de sucesso e os erros aplicáveis (400, 401, 403, 404, 409, 429 e 500) nos schemas OpenAPI.
 
 <br>
 

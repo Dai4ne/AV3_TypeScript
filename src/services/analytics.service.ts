@@ -100,6 +100,10 @@ export const analyticsService = {
                     where: { estadoFisico: { not: null } }, orderBy: { dataHora: "asc" },
                     select: { dataHora: true, estadoFisico: true, valorEstimado: true },
                 },
+                historicoFalhas: {
+                    orderBy: { dataHora: "asc" },
+                    select: { dataHora: true },
+                },
             },
         });
         const alvo = ordemEstados.indexOf("INSERVIVEL");
@@ -107,13 +111,34 @@ export const analyticsService = {
             if (equipamento.estadoFisico === "INSERVIVEL") {
                 return { equipamentoId: equipamento.id, estadoAtual: equipamento.estadoFisico, dataPrevista: null, jaInservivel: true, motivo: "O equipamento já está classificado como INSERVIVEL." };
             }
-            const pontos = equipamento.historicoValores.flatMap(historico => {
+            const historicos = equipamento.historicoValores.flatMap(historico => {
                 if (!historico.estadoFisico) return [];
                 const estado = ordemEstados.indexOf(historico.estadoFisico);
-                return estado < 0 ? [] : [[historico.dataHora.getTime(), estado] as [number, number]];
+                return estado < 0 ? [] : [{ tempo: historico.dataHora.getTime(), estado, valor: Number(historico.valorEstimado) }];
             });
+            const valorBase = historicos.find(item => item.valor > 0)?.valor ?? 0;
+            const pontos: Array<[number, number]> = [];
+            const eventos = [
+                ...historicos.map(item => ({ tempo: item.tempo, tipo: "medicao" as const, item })),
+                ...equipamento.historicoFalhas.map(falha => ({ tempo: falha.dataHora.getTime(), tipo: "falha" as const })),
+            ].sort((a, b) => a.tempo - b.tempo || (a.tipo === b.tipo ? 0 : a.tipo === "medicao" ? -1 : 1));
+            let indiceObservado = 0;
+            for (const evento of eventos) {
+                if (evento.tipo === "medicao") {
+                    const indiceDepreciacao = valorBase > 0 && evento.item.valor >= 0
+                        ? Math.min(alvo, Math.max(0, Math.round((1 - evento.item.valor / valorBase) * alvo)))
+                        : 0;
+                    indiceObservado = Math.max(evento.item.estado, indiceDepreciacao);
+                    pontos.push([evento.tempo, indiceObservado]);
+                } else if (pontos.length > 0) {
+                    // Na ausência de severidade padronizada, cada falha registrada representa
+                    // um avanço ordinal de degradação, limitado ao estado INSERVIVEL.
+                    indiceObservado = Math.min(alvo, indiceObservado + 1);
+                    pontos.push([evento.tempo, indiceObservado]);
+                }
+            }
             if (pontos.length < 2) {
-                return { equipamentoId: equipamento.id, estadoAtual: equipamento.estadoFisico, dataPrevista: null, jaInservivel: false, motivo: "Histórico insuficiente: são necessárias ao menos duas medições com estado físico." };
+                return { equipamentoId: equipamento.id, estadoAtual: equipamento.estadoFisico, dataPrevista: null, jaInservivel: false, motivo: "Histórico insuficiente: são necessárias ao menos duas observações entre estado físico, depreciação ou falhas." };
             }
             const modelo = linearRegression(pontos);
             const dataMs = modelo.m > 0 ? (alvo - modelo.b) / modelo.m : NaN;
@@ -125,7 +150,7 @@ export const analyticsService = {
                 valorEstimadoAtual: Number(equipamento.historicoValores.at(-1)?.valorEstimado ?? 0),
                 dataPrevista,
                 jaInservivel: false,
-                metodo: "Regressão linear por mínimos quadrados sobre o índice ordinal do estado físico ao longo do tempo.",
+                metodo: "Regressão linear por mínimos quadrados sobre um índice ordinal que combina estado físico, depreciação relativa do valor estimado e falhas registradas.",
                 motivo: dataPrevista ? undefined : "A tendência histórica não indica uma data futura de chegada a INSERVIVEL.",
             };
         });

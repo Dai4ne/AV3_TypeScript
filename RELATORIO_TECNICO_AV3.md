@@ -40,9 +40,9 @@ Para cada equipamento ativo, usa-se a medição mais recente de recuperação n�
 
 ### Vida útil remanescente
 
-O sistema associa os estados físicos a uma escala ordinal (`NOVO` = 0 até `INSERVIVEL` = 6) e aplica regressão linear por mínimos quadrados às medições históricas datadas. A projeção é o instante estimado em que a reta atinge o nível `INSERVIVEL`. Equipamentos já inservíveis são marcados como tal; histórico insuficiente ou tendência sem piora resulta em projeção nula.
+O sistema associa os estados físicos a uma escala ordinal (`NOVO` = 0 até `INSERVIVEL` = 6) e aplica regressão linear por mínimos quadrados às observações históricas datadas. O índice de degradação combina o estado físico observado com a depreciação relativa do valor estimado desde a primeira avaliação positiva. Quando há histórico de estado anterior, cada falha registrada acrescenta um avanço ordinal, limitado ao nível `INSERVIVEL`; como a base não padroniza severidade de falhas, esse peso é uma hipótese explícita do modelo. A projeção é o instante em que a reta ajustada atinge o nível `INSERVIVEL`. Equipamentos já inservíveis são marcados como tal; histórico insuficiente ou tendência sem piora resulta em projeção nula.
 
-Essa previsão assume que a distância entre categorias é comparável e que a tendência recente continua. Ela serve como estimativa demonstrativa, não como garantia de vida útil. O seed tem poucos equipamentos, portanto não representa uma amostra estatística de produção.
+Essa previsão assume que a distância entre categorias é comparável, que uma falha equivale a um avanço ordinal e que a tendência observada continua. Ela serve como estimativa demonstrativa, não como garantia de vida útil. O seed tem poucos equipamentos, portanto não representa uma amostra estatística de produção.
 
 ## 4. Modelagem e histórico
 
@@ -50,8 +50,8 @@ Essa previsão assume que a distância entre categorias é comparável e que a t
 | --- | --- |
 | `Lote` | Recebimento, status, `triagemConcluidaEm` e `operadorTriagem`, necessários para medir eficiência. |
 | `Movimentacao` | Linha do tempo de rastreabilidade, responsável e transições do equipamento. |
-| `HistoricoValorEquipamento` | Medições temporais de valor estimado, valor recuperado e estado físico observado. Alimenta rentabilidade e projeção. |
-| `FalhaEquipamento` | Data, descrição e custo de falhas para análises futuras. |
+| `HistoricoValorEquipamento` | Medições temporais de valor estimado, valor recuperado e estado físico observado. Alimenta rentabilidade e o índice de depreciação usado na projeção. |
+| `FalhaEquipamento` | Data, descrição e custo de falhas. A ocorrência entra na projeção como avanço ordinal, pois não existe severidade padronizada. |
 | `ExecucaoAnalitica` | Tipo, parâmetros, início, conclusão e resultado JSON de cada execução. |
 | `PrevisaoVidaUtil` | Uma previsão por equipamento e execução; armazena estado no cálculo, data prevista, data real observada e erro assinado em dias. |
 | `ChaveApi` | Hash SHA-256, parceiro, permissões, estado ativo e datas. A chave em texto claro só é devolvida ao criá-la ou rotacioná-la. |
@@ -61,7 +61,7 @@ As migrations ficam em `prisma/migrations`. `PrevisaoVidaUtil.dataReal` e `erroD
 
 ## 5. API e segurança
 
-As rotas de integração usam `/api/v1/public`; a administração e os relatórios internos usam `/api/v1/internal`. Rotas internas exigem JWT de administrador. Rotas públicas usam `X-API-Key`, permissões por chave e rate limit de 120 requisições por minuto por chave.
+As rotas de integração usam `/api/v1/public`; as operações internas e administrativas usam `/api/v1/internal`. Rotas internas exigem JWT e respeitam os papéis ou o papel de administrador definido por operação. Rotas públicas usam `X-API-Key`, permissões por chave e rate limit de 120 requisições por minuto por chave. Os caminhos antigos da AV2 continuam disponíveis como aliases protegidos para compatibilidade; novas integrações devem usar as rotas versionadas. A retirada de qualquer alias legado será anunciada com pelo menos 90 dias de antecedência.
 
 Permissões disponíveis:
 
@@ -69,7 +69,7 @@ Permissões disponíveis:
 - `lotes:write`
 - `analises:read`
 
-Cada chave fica associada ao parceiro e os jobs e downloads são consultados no escopo desse parceiro. O contrato OpenAPI fica no Swagger (`/docs`).
+Cada chave fica associada ao parceiro e os jobs e downloads são consultados no escopo desse parceiro. O contrato OpenAPI fica no Swagger (`/docs`) e traz exemplos completos de corpos de entrada e respostas de sucesso, além de exemplos dos erros de autenticação, permissão, validação, conflito, limite e estado do job.
 
 ### Depreciação de versões
 
@@ -110,7 +110,8 @@ Os arquivos são gravados em `data/reports` por padrão, ou no caminho definido 
 
 ## 9. Verificações realizadas
 
-- Schema Prisma validado; após a última alteração do modelo de jobs, a regeneração do Prisma Client precisa ser repetida com os processos Node parados, pois o Windows bloqueou temporariamente o arquivo do engine.
-- Build TypeScript executado sem erros após as alterações da camada analítica e do processamento PostgreSQL.
-- Endpoints analíticos consultados manualmente: eficiência, rentabilidade, vida útil, histórico e comparações retornaram HTTP 200.
-- Fluxo público de relatórios consultado manualmente anteriormente com BullMQ. O worker PostgreSQL substituiu essa implementação; o fluxo PostgreSQL deve ser confirmado após aplicar a migration `fila_jobs_postgres` e executar um job de ponta a ponta.
+- O schema Prisma e o build TypeScript foram validados no ambiente Windows de desenvolvimento.
+- O workflow `.github/workflows/compatibilidade.yml` foi configurado para executar validação e build em Windows Server 2022 e Ubuntu 24.04 em cada push ou pull request; esta execução local não pode atestar resultados futuros do workflow.
+- Os endpoints analíticos foram consultados manualmente anteriormente: eficiência, rentabilidade, vida útil, histórico e comparações retornaram HTTP 200. Essa execução usou a projeção anterior; a versão atual também precisa ser consultada com o banco disponível.
+- O fluxo público de relatórios havia sido consultado manualmente com BullMQ. O worker PostgreSQL substituiu aquela implementação; o status da migration `fila_jobs_postgres` e o fluxo POST, polling e download devem ser conferidos no banco local antes da entrega.
+- A documentação define Windows 10 ou superior e Linux Ubuntu 24.04.3 ou superior e derivados como plataformas-alvo. A validação local desta versão foi feita somente no Windows; o workflow configurado permitirá confirmar também o build no runner Linux após o próximo push ou pull request.
