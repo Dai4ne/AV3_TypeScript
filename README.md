@@ -22,6 +22,7 @@ Os dados da AV1 **não** são importados. A AV3 começa com os mesmos registros 
 12. [Problemas comuns](#problemas-comuns)
 13. [API pública e análises AV3](#api-pública-e-análises-av3)
 14. [Fila e worker de relatórios](#fila-e-worker-de-relatórios)
+15. [Relatório técnico da AV3](#relatório-técnico-da-av3)
 
 ## 🔧Ferramentas necessárias
 
@@ -208,6 +209,10 @@ As análises internas são executadas sob demanda e também diariamente às 02:0
 ## Fila e worker de relatórios
 
 O worker usa a tabela `JobRelatorio` no PostgreSQL, então não requer Redis nem outro serviço instalado. Execute em terminais separados `npm run dev` e `npm run worker`. O worker consulta a fila a cada segundo por padrão, com concorrência 2; ambos são configuráveis pelo `.env`. Um lease de 10 minutos é renovado enquanto o relatório é processado; se o worker parar inesperadamente, outro worker devolve jobs expirados à fila ou os marca como falhos quando as tentativas já se esgotaram. Os arquivos são gravados em `data/reports` (ou em `REPORTS_DIR`) e esse diretório é ignorado pelo Git. Solicite o job com `POST /api/v1/public/relatorios`, acompanhe o estado por polling no endpoint de status e baixe em `/download` quando estiver `CONCLUIDO`. Jobs e downloads são isolados pelo parceiro autenticado; retries usam backoff exponencial (1s, 2s, 4s, 8s, até cinco tentativas). A dead-letter mantém os registros `FALHOU` no PostgreSQL para inspeção via `/api/v1/internal/relatorios/dead-letter`.
+
+## Relatório técnico da AV3
+
+O documento [RELATORIO_TECNICO_AV3.md](RELATORIO_TECNICO_AV3.md) registra a biblioteca estatística e sua justificativa, a modelagem analítica e de jobs, a política de retry e dead-letter, a depreciação da API e as opções para escalar a arquitetura.
 
 As chaves e rotas estão versionadas por URL; clientes antigos devem migrar para v1 antes de eventual v2. Para escalar, executar múltiplos workers PostgreSQL, particionar histórico por data/parceiro, cachear agregados por período, aplicar cotas de rate limit por plano e usar réplicas de leitura para relatórios. A API pública deve ser publicada com exemplos e schemas OpenAPI; todo endpoint v1 deve incluir exemplos de sucesso e erros 400, 401, 403 e 404.
 
