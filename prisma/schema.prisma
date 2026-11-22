@@ -136,6 +136,7 @@ model Equipamento {
   movimentacoes       Movimentacao[]
   historicoValores    HistoricoValorEquipamento[]
   historicoFalhas     FalhaEquipamento[]
+  previsoesVidaUtil   PrevisaoVidaUtil[]
 
   @@index([loteId])
   @@index([statusRastreamento])
@@ -195,7 +196,24 @@ model ExecucaoAnalitica {
   iniciadoEm DateTime @default(now())
   concluidoEm DateTime?
   resultado Json?
+  previsoesVidaUtil PrevisaoVidaUtil[]
   @@index([analise, iniciadoEm])
+}
+
+model PrevisaoVidaUtil {
+  id String @id @default(uuid())
+  execucaoId String
+  equipamentoId String
+  calculadoEm DateTime @default(now()) @db.Timestamptz(3)
+  estadoNoCalculo EstadoFisico
+  dataPrevista DateTime? @db.Timestamptz(3)
+  dataReal DateTime? @db.Timestamptz(3)
+  erroDias Int?
+  execucao ExecucaoAnalitica @relation(fields:[execucaoId], references:[id], onDelete:Cascade)
+  equipamento Equipamento @relation(fields:[equipamentoId], references:[id], onDelete:Cascade)
+  @@unique([execucaoId, equipamentoId])
+  @@index([equipamentoId, calculadoEm])
+  @@index([dataReal])
 }
 
 model JobRelatorio {

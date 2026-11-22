@@ -32,6 +32,7 @@ export const equipamentoRepository = {
                     posicaoNoLote: (ultimaPosicao._max.posicaoNoLote ?? 0) + 1,
                 },
             });
+            await tx.historicoValorEquipamento.create({ data: { equipamentoId: equipamento.id, estadoFisico: equipamento.estadoFisico, valorEstimado: 0, motivo: "Estado físico inicial registrado para análise de vida útil" } });
             return { equipamento };
         });
     },
@@ -58,6 +59,15 @@ export const equipamentoRepository = {
                         observacao: justificativa?.trim()
                             ? `${detalhe} Justificativa: ${justificativa.trim()}`
                             : detalhe,
+                    },
+                });
+                const ultimaMedicao = await tx.historicoValorEquipamento.findFirst({ where: { equipamentoId: id }, orderBy: { dataHora: "desc" }, select: { valorEstimado: true } });
+                await tx.historicoValorEquipamento.create({
+                    data: {
+                        equipamentoId: id,
+                        estadoFisico: dados.estadoFisico,
+                        valorEstimado: ultimaMedicao?.valorEstimado ?? 0,
+                        motivo: `Estado físico alterado de ${atual.estadoFisico} para ${dados.estadoFisico}.`,
                     },
                 });
             }

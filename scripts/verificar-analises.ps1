@@ -20,6 +20,18 @@ try {
             Write-Output "Falha HTTP $status : $($_.Exception.Message)"
         }
     }
+
+    foreach ($endpoint in @("historico?analise=vidaUtil&limite=5", "vida-util/comparacoes")) {
+        Write-Output "`n=== persistência: $endpoint ==="
+        try {
+            $resultado = Invoke-RestMethod -Method Get -Uri "$base/api/v1/internal/analises/$endpoint" -Headers $headers
+            Write-Output "HTTP 200"
+            $resultado | ConvertTo-Json -Depth 10
+        } catch {
+            $status = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { "sem resposta HTTP" }
+            Write-Output "Falha HTTP $status : $($_.Exception.Message)"
+        }
+    }
 } catch {
     Write-Output "Falha no login/conexão: $($_.Exception.Message)"
 } finally {

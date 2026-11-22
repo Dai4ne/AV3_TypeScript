@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { autenticar, exigirPapeis } from "../plugins/auth.js";
 import { apiKeyService } from "../services/api-key.service.js";
-import { executarAnalise } from "../services/analytics.service.js";
+import { executarAnalise, historicoAnaliticoService } from "../services/analytics.service.js";
 import { materializarEsquema } from "./openapi.js";
 
 const permissoes = ["rastreabilidade:read", "lotes:write", "analises:read"];
@@ -90,4 +90,39 @@ export async function registrarApiInterna(app: FastifyInstance): Promise<void> {
             schema: { ...admin.schema, summary: nome, description: "Requer JWT de administrador; registra a execução analítica." },
         }, () => executarAnalise(chaveAnalise));
     }
+
+    app.get("/api/v1/internal/analises/historico", {
+        ...admin,
+        schema: {
+            ...admin.schema,
+            summary: "Consultar execuções analíticas",
+            description: "Lista execuções e resultados persistidos, da mais recente para a mais antiga.",
+            querystring: {
+                type: "object", additionalProperties: false,
+                properties: {
+                    analise: { type: "string", enum: ["eficiencia", "rentabilidade", "vidaUtil"] },
+                    limite: { type: "integer", minimum: 1, maximum: 100, default: 20 },
+                },
+            },
+        },
+    }, async request => {
+        const query = request.query as { analise?: string; limite?: number };
+        return historicoAnaliticoService.execucoes(query.analise, query.limite ?? 20);
+    });
+
+    app.get("/api/v1/internal/analises/vida-util/comparacoes", {
+        ...admin,
+        schema: {
+            ...admin.schema,
+            summary: "Consultar previsões versus resultados reais",
+            description: "Cada previsão mantém data calculada, data real de INSERVIVEL quando observada e erro em dias (real menos previsto).",
+            querystring: {
+                type: "object", additionalProperties: false,
+                properties: { equipamentoId: { type: "string", minLength: 1 } },
+            },
+        },
+    }, async request => {
+        const query = request.query as { equipamentoId?: string };
+        return historicoAnaliticoService.comparacoesVidaUtil(query.equipamentoId);
+    });
 }

@@ -21,6 +21,7 @@ let encerrando = false;
 async function encerrar(): Promise<void> {
     if (encerrando) return;
     encerrando = true;
+    tarefaAnalitica.stop();
     await app.close();
 }
 

@@ -133,15 +133,41 @@ export const analyticsService = {
 };
 
 export type NomeAnalise = "eficiencia" | "rentabilidade" | "vidaUtil";
+type ItemPrevisao = { equipamentoId: string; estadoAtual: EstadoFisico; dataPrevista: string | null };
 export async function executarAnalise(nome: NomeAnalise) {
     const execucao = await prisma.execucaoAnalitica.create({ data: { analise: nome, parametros: {} } });
     try {
         const resultado = nome === "eficiencia" ? await analyticsService.eficiencia()
             : nome === "rentabilidade" ? await analyticsService.rentabilidade()
                 : await analyticsService.vidaUtil();
-        await prisma.execucaoAnalitica.update({
-            where: { id: execucao.id },
-            data: { concluidoEm: new Date(), resultado: JSON.parse(JSON.stringify(resultado)) },
+        await prisma.$transaction(async tx => {
+            if (nome === "vidaUtil") {
+                const previsoes = resultado as ItemPrevisao[];
+                for (const previsao of previsoes) {
+                    const ocorrido = await tx.historicoValorEquipamento.findFirst({
+                        where: { equipamentoId: previsao.equipamentoId, estadoFisico: "INSERVIVEL" },
+                        orderBy: { dataHora: "asc" }, select: { dataHora: true },
+                    });
+                    if (ocorrido) {
+                        const anteriores = await tx.previsaoVidaUtil.findMany({ where: { equipamentoId: previsao.equipamentoId, dataReal: null } });
+                        for (const anterior of anteriores) {
+                            const erroDias = anterior.dataPrevista ? Math.round((ocorrido.dataHora.getTime() - anterior.dataPrevista.getTime()) / 86_400_000) : null;
+                            await tx.previsaoVidaUtil.update({ where: { id: anterior.id }, data: { dataReal: ocorrido.dataHora, erroDias } });
+                        }
+                    }
+                    const dataPrevista = previsao.dataPrevista ? new Date(previsao.dataPrevista) : null;
+                    const erroDias = ocorrido && dataPrevista ? Math.round((ocorrido.dataHora.getTime() - dataPrevista.getTime()) / 86_400_000) : null;
+                    await tx.previsaoVidaUtil.create({ data: {
+                        execucaoId: execucao.id, equipamentoId: previsao.equipamentoId,
+                        estadoNoCalculo: previsao.estadoAtual, dataPrevista,
+                        dataReal: ocorrido?.dataHora ?? null, erroDias,
+                    } });
+                }
+            }
+            await tx.execucaoAnalitica.update({
+                where: { id: execucao.id },
+                data: { concluidoEm: new Date(), resultado: JSON.parse(JSON.stringify(resultado)) },
+            });
         });
         return resultado;
     } catch (erro) {
@@ -152,3 +178,19 @@ export async function executarAnalise(nome: NomeAnalise) {
         throw erro;
     }
 }
+
+export const historicoAnaliticoService = {
+    execucoes(analise?: string, limite = 20) {
+        return prisma.execucaoAnalitica.findMany({
+            where: analise ? { analise } : {}, orderBy: { iniciadoEm: "desc" }, take: limite,
+            select: { id: true, analise: true, parametros: true, iniciadoEm: true, concluidoEm: true, resultado: true },
+        });
+    },
+    comparacoesVidaUtil(equipamentoId?: string) {
+        return prisma.previsaoVidaUtil.findMany({
+            where: equipamentoId ? { equipamentoId } : {},
+            orderBy: { calculadoEm: "desc" },
+            include: { equipamento: { select: { marca: true, modelo: true, estadoFisico: true } } },
+        });
+    },
+};
