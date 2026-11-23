@@ -214,15 +214,42 @@ O worker usa a tabela `JobRelatorio` no PostgreSQL, então não requer Redis nem
 
 ### Verificação automatizada da AV3
 
-Com PostgreSQL, API (`npm run dev`) e worker (`npm run worker`) ativos em terminais separados, rode os scripts abaixo no PowerShell. Eles solicitam usuário e senha do administrador sem gravar a senha no projeto:
+O roteiro recomendado para o professor é `scripts/demonstrar-av3.ps1`. Ele executa os principais caminhos da AV3 em sequência e informa cada status HTTP esperado. Não é necessário copiar os comandos HTTP para o terminal nem executar cada chamada no Swagger.
 
-Para uma demonstração única dos principais caminhos da AV3, use o script de avaliação. Ele solicita as credenciais uma vez, percorre API pública, permissões e ciclo de chaves, rastreabilidade, submissão de lotes, análises e persistência, documentação OpenAPI, rate limit e jobs JSON/CSV com polling e download:
+#### Preparação e execução do script de avaliação
+
+1. Abra a pasta do projeto no VS Code e confirme que o `.env` aponta para um PostgreSQL ligado e que as migrations e o seed foram aplicados. O seed fornece os registros `DEMO-` usados nas verificações.
+2. Abra três terminais PowerShell na raiz do projeto. No primeiro, inicie a API:
+
+   ```powershell
+   npm run dev
+   ```
+
+3. No segundo terminal, inicie o worker de relatórios:
+
+   ```powershell
+   npm run worker
+   ```
+
+   Deixe os dois terminais abertos. O worker precisa estar ativo para os relatórios JSON e CSV chegarem a `CONCLUIDO`.
+4. No terceiro terminal, ainda na raiz do projeto, execute:
 
 ```powershell
 .\scripts\demonstrar-av3.ps1
 ```
 
-O script também tenta remover o lote e revogar as chaves criadas durante a demonstração. Os jobs e arquivos de relatório permanecem no histórico do banco como registros demonstrativos. Se preferir executar cada grupo separadamente, use os verificadores abaixo:
+5. Informe o usuário administrador e a senha quando solicitados. A senha é digitada como texto oculto e não é salva no projeto. O script usa `http://127.0.0.1:3000` por padrão. Se a API estiver em outra URL, defina-a antes de executar, por exemplo:
+
+   ```powershell
+   $env:API_BASE_URL = "http://127.0.0.1:3001"
+   .\scripts\demonstrar-av3.ps1
+   ```
+
+6. Aguarde o resultado final. O script pode levar alguns minutos porque aguarda os dois jobs de relatório, consultando o status até 180 segundos. `TODOS OS FLUXOS AV3 PASSARAM` indica que as verificações terminaram; se houver falha, o script mostra o caminho e encerra com código de erro.
+
+O roteiro verifica saúde da API, credenciais inválidas e login correto, especificação OpenAPI, criação/listagem/rotação/revogação de chaves, chamadas sem chave ou com chave inválida, permissões, rastreabilidade existente e inexistente, submissão válida, lote duplicado e contrato expirado, as três análises públicas e internas, histórico analítico e comparações de previsão, dead-letter, isolamento de jobs por parceiro, geração e download de relatórios JSON/CSV, e limite de requisições (429). Ao final, remove o equipamento de demonstração, inativa o lote e revoga as chaves temporárias. Os registros dos jobs e arquivos gerados permanecem no histórico do banco como evidência da execução.
+
+Para rodar apenas um grupo de verificações, os scripts individuais continuam disponíveis:
 
 ```powershell
 .\scripts\verificar-api-publica.ps1
@@ -230,7 +257,7 @@ O script também tenta remover o lote e revogar as chaves criadas durante a demo
 .\scripts\verificar-relatorios.ps1
 ```
 
-O primeiro verifica chaves, permissões, rastreabilidade, submissão de lote e rate limit; o segundo consulta as três análises e o histórico persistido; o terceiro solicita relatórios JSON e CSV, aguarda até dois minutos, consulta o estado e valida os arquivos baixados. Os scripts encerram com código diferente de zero se uma verificação falhar. Os jobs e arquivos gerados ficam registrados como dados de demonstração; a chave temporária do script de relatórios é revogada ao final.
+O primeiro verifica chaves, permissões, rastreabilidade, submissão de lote e rate limit; o segundo consulta as três análises e o histórico persistido; o terceiro solicita relatórios JSON e CSV, aguarda até dois minutos, consulta o estado e valida os arquivos baixados. Eles também precisam da API e, para os relatórios, do worker ativos. Os scripts encerram com código diferente de zero se uma verificação falhar.
 
 ## Relatório técnico da AV3
 
@@ -258,8 +285,11 @@ Com a API no ar (`npm run dev`):
 
 1. Abra [http://localhost:3000/docs](http://localhost:3000/docs) no navegador. Essa é a interface Swagger UI.
 2. A especificação OpenAPI também fica em [http://localhost:3000/docs/json](http://localhost:3000/docs/json) (JSON) e [http://localhost:3000/docs/yaml](http://localhost:3000/docs/yaml) (YAML).
-3. `GET /health` e `POST /auth/login` são públicos. Todas as outras rotas exigem JWT.
-4. Faça login:
+3. No Swagger, as rotas internas usam **JWT de usuário**; as rotas versionadas públicas usam **chave de API do parceiro**. `GET /health` e `POST /auth/login` não exigem credencial. JWT e chave de API são credenciais diferentes e não substituem uma à outra.
+
+### Autorizar chamadas internas com JWT
+
+1. Faça login:
    - Expanda **autenticação** → `POST /auth/login` → **Try it out**.
    - Corpo de exemplo (use `ADMIN_USER` e `ADMIN_PASSWORD` do `.env`):
 
@@ -270,15 +300,32 @@ Com a API no ar (`npm run dev`):
 
    - Clique em **Execute**.
    - Na resposta `200`, copie só o valor de `token` (sem a palavra `Bearer`).
-5. Autorize as demais chamadas:
-   - Clique em **Authorize** (cadeado no topo).
-   - Cole **somente o token**.
-   - Confirme. A UI envia `Authorization: Bearer <token>` nas rotas protegidas.
-6. Escolha a rota, **Try it out**, preencha JSON/parâmetros e **Execute**. O painel mostra status, corpo e o `curl` equivalente.
-7. O token vale **30 minutos**. Se as rotas voltarem `401`, faça login de novo e atualize o Authorize.
+2. Na resposta `200`, copie apenas o valor de `token` — sem aspas e sem escrever `Bearer`.
+3. Clique em **Authorize** (cadeado no topo), cole somente o token no campo **bearerAuth** e confirme. O Swagger envia `Authorization: Bearer <token>` nas rotas internas.
+4. Use JWT para `/api/v1/internal/*` e operações administrativas legadas. Essas rotas exigem usuário autenticado; o gerenciamento de chaves e operações administrativas exigem o papel `ADMINISTRADOR`. O token expira em 30 minutos. Um `401` indica token ausente, inválido ou expirado; um `403` indica que o usuário autenticado não tem o papel necessário.
+
+### Autorizar chamadas públicas com chave de API
+
+1. Gere a chave usando JWT de administrador: expanda **API interna v1** → `POST /api/v1/internal/chaves` → **Try it out**. Envie, por exemplo:
+
+   ```json
+   {
+     "parceiro": "Parceiro de demonstração",
+     "permissoes": ["rastreabilidade:read", "lotes:write", "analises:read"]
+   }
+   ```
+
+   Execute a chamada e, na resposta `201`, copie o campo `chave` imediatamente. O segredo completo só aparece nessa resposta; o banco guarda apenas o hash. Escolha apenas as permissões que o parceiro precisa.
+2. Clique em **Authorize**, localize **apiKeyAuth** e cole a chave completa. Confirme. Para operações `/api/v1/public/*`, o Swagger envia `X-API-Key: <chave>`.
+3. Execute uma rota pública com **Try it out**. Permissões necessárias: `rastreabilidade:read` para `GET /api/v1/public/rastreabilidade/{codigo}`; `lotes:write` para `POST /api/v1/public/lotes`; `analises:read` para as consultas analíticas e para criar, consultar e baixar relatórios assíncronos.
+4. Respostas de validação esperadas: `401` para chave ausente, inválida, revogada ou expirada; `403` para chave ativa sem a permissão exigida; `404` para equipamento/job não encontrado ou job pertencente a outro parceiro; `409` para lote duplicado ou contrato expirado; `429` quando o limite por chave for excedido. A operação bem-sucedida mostra o código e o corpo documentados para aquela rota.
+
+Rotação e revogação também são administrativas e exigem JWT: use `POST /api/v1/internal/chaves/{id}/rotacionar` para obter um novo segredo (a chave anterior deixa de funcionar) ou `DELETE /api/v1/internal/chaves/{id}` para revogar. Copie e atualize o segredo no **apiKeyAuth** após rotacionar. `GET /api/v1/internal/chaves` lista metadados, sem revelar segredo nem hash.
+
+Em qualquer operação, escolha a rota e clique em **Try it out**, preencha os parâmetros/corpo e clique em **Execute**. O painel mostra o status, a resposta e o `curl` equivalente. A segurança exibida em cada operação indica se ela espera JWT ou chave de API. O script `demonstrar-av3.ps1` automatiza essas validações HTTP; o Swagger é útil para explorar e executar chamadas individualmente.
 
 No Swagger, ao atualizar, alterar status, inativar, reativar ou excluir, envie a `versao` atual (veja [Controle de concorrência](#controle-de-concorrência-versao)). No cadastro de equipamento, envie `versaoLote`.
-Para testar outro papel, faça login com essa conta (depois de criá-la como administrador) e substitua o token no Authorize.
+Para testar outro papel nas rotas internas que permitem esse papel, faça login com essa conta (depois de criá-la como administrador) e substitua o token no **bearerAuth**. Para testar permissões públicas, crie uma chave contendo só a permissão que deseja validar e use-a em **apiKeyAuth**.
 
 <br>
 
