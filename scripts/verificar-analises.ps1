@@ -3,6 +3,7 @@ $base = "http://127.0.0.1:3000"
 $usuario = Read-Host "Usuário administrador"
 $senhaSegura = Read-Host "Senha do administrador" -AsSecureString
 $senha = [System.Net.NetworkCredential]::new("", $senhaSegura).Password
+$falhas = [System.Collections.Generic.List[string]]::new()
 
 try {
     $loginBody = @{ usuario = $usuario; senha = $senha } | ConvertTo-Json -Compress
@@ -13,11 +14,13 @@ try {
         Write-Output "`n=== $endpoint ==="
         try {
             $resultado = Invoke-RestMethod -Method Get -Uri "$base/api/v1/internal/analises/$endpoint" -Headers $headers
-            Write-Output "HTTP 200"
+            Write-Output "OK - HTTP 200"
             $resultado | ConvertTo-Json -Depth 10
         } catch {
             $status = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { "sem resposta HTTP" }
-            Write-Output "Falha HTTP $status : $($_.Exception.Message)"
+            $mensagem = "Análise $endpoint falhou (HTTP $status): $($_.Exception.Message)"
+            Write-Output "FALHA - $mensagem"
+            $falhas.Add($mensagem)
         }
     }
 
@@ -25,16 +28,23 @@ try {
         Write-Output "`n=== persistência: $endpoint ==="
         try {
             $resultado = Invoke-RestMethod -Method Get -Uri "$base/api/v1/internal/analises/$endpoint" -Headers $headers
-            Write-Output "HTTP 200"
+            Write-Output "OK - HTTP 200"
             $resultado | ConvertTo-Json -Depth 10
         } catch {
             $status = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { "sem resposta HTTP" }
-            Write-Output "Falha HTTP $status : $($_.Exception.Message)"
+            $mensagem = "Consulta de persistência $endpoint falhou (HTTP $status): $($_.Exception.Message)"
+            Write-Output "FALHA - $mensagem"
+            $falhas.Add($mensagem)
         }
     }
 } catch {
-    Write-Output "Falha no login/conexão: $($_.Exception.Message)"
+    $mensagem = "Login ou conexão falhou: $($_.Exception.Message)"
+    Write-Output "FALHA - $mensagem"
+    $falhas.Add($mensagem)
 } finally {
     $senha = $null
     $senhaSegura.Dispose()
 }
+
+if ($falhas.Count -gt 0) { exit 1 }
+Write-Output "Todas as verificações analíticas passaram."

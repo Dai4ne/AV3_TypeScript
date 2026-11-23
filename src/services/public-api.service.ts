@@ -12,7 +12,7 @@ export const publicApiService={
   const agora=new Date();const org=await prisma.organizacao.findUnique({where:{id:dados.organizacaoId},include:{contrato:true}});
   if(!org||!org.ativo)throw new ErroApiPublica(404,"Organização não encontrada ou inativa.");
   if(!org.contrato||org.contrato.dataAssinatura>agora||org.contrato.dataVencimento<agora)throw new ErroApiPublica(409,"A organização precisa ter contrato vigente para receber lotes.");
-  try{return await prisma.lote.create({data:{id:dados.id,dataEntrada:agora,organizacaoId:org.id,notaFiscal:dados.notaFiscal.trim(),transportadora:dados.transportadora.trim(),equipamentos:{create:dados.equipamentos.map((e,posicaoNoLote)=>({...e,codigoBarrasInterno:e.id,posicaoNoLote:posicaoNoLote+1}))}},include:{equipamentos:true}});}
+  try{return await prisma.lote.create({data:{id:dados.id,dataEntrada:agora,organizacaoId:org.id,notaFiscal:dados.notaFiscal.trim(),transportadora:dados.transportadora.trim(),equipamentos:{create:dados.equipamentos.map((e,posicaoNoLote)=>({...e,codigoBarrasInterno:e.id,posicaoNoLote:posicaoNoLote+1,historicoValores:{create:{estadoFisico:e.estadoFisico,valorEstimado:0,motivo:"Estado físico inicial registrado na submissão pública"}}}))}},include:{equipamentos:true}});}
   catch(error){if(error instanceof Prisma.PrismaClientKnownRequestError){if(error.code==="P2002")throw new ErroApiPublica(409,"ID de lote ou equipamento já cadastrado.");if(error.code==="P2003")throw new ErroApiPublica(404,"Organização não encontrada.");}throw error;}
  },
 };

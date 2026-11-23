@@ -212,6 +212,26 @@ As análises internas são executadas sob demanda e também diariamente às 02:0
 
 O worker usa a tabela `JobRelatorio` no PostgreSQL, então não requer Redis nem outro serviço instalado. Execute em terminais separados `npm run dev` e `npm run worker`. O worker consulta a fila a cada segundo por padrão, com concorrência 2; ambos são configuráveis pelo `.env`. Um lease de 10 minutos é renovado enquanto o relatório é processado; se o worker parar inesperadamente, outro worker devolve jobs expirados à fila ou os marca como falhos quando as tentativas já se esgotaram. Os arquivos são gravados em `data/reports` (ou em `REPORTS_DIR`) e esse diretório é ignorado pelo Git. Solicite o job com `POST /api/v1/public/relatorios`, acompanhe o estado por polling no endpoint de status e baixe em `/download` quando estiver `CONCLUIDO`. Jobs e downloads são isolados pelo parceiro autenticado; retries usam backoff exponencial (1s, 2s, 4s, 8s, até cinco tentativas). A dead-letter mantém os registros `FALHOU` no PostgreSQL para inspeção via `/api/v1/internal/relatorios/dead-letter`.
 
+### Verificação automatizada da AV3
+
+Com PostgreSQL, API (`npm run dev`) e worker (`npm run worker`) ativos em terminais separados, rode os scripts abaixo no PowerShell. Eles solicitam usuário e senha do administrador sem gravar a senha no projeto:
+
+Para uma demonstração única dos principais caminhos da AV3, use o script de avaliação. Ele solicita as credenciais uma vez, percorre API pública, permissões e ciclo de chaves, rastreabilidade, submissão de lotes, análises e persistência, documentação OpenAPI, rate limit e jobs JSON/CSV com polling e download:
+
+```powershell
+.\scripts\demonstrar-av3.ps1
+```
+
+O script também tenta remover o lote e revogar as chaves criadas durante a demonstração. Os jobs e arquivos de relatório permanecem no histórico do banco como registros demonstrativos. Se preferir executar cada grupo separadamente, use os verificadores abaixo:
+
+```powershell
+.\scripts\verificar-api-publica.ps1
+.\scripts\verificar-analises.ps1
+.\scripts\verificar-relatorios.ps1
+```
+
+O primeiro verifica chaves, permissões, rastreabilidade, submissão de lote e rate limit; o segundo consulta as três análises e o histórico persistido; o terceiro solicita relatórios JSON e CSV, aguarda até dois minutos, consulta o estado e valida os arquivos baixados. Os scripts encerram com código diferente de zero se uma verificação falhar. Os jobs e arquivos gerados ficam registrados como dados de demonstração; a chave temporária do script de relatórios é revogada ao final.
+
 ## Relatório técnico da AV3
 
 O Swagger em `/docs` documenta corpos de requisição e respostas com exemplos completos, os parâmetros e os códigos de erro das rotas públicas. O documento [RELATORIO_TECNICO_AV3.md](RELATORIO_TECNICO_AV3.md) registra a biblioteca estatística e sua justificativa, a modelagem analítica e de jobs, a política de retry e dead-letter, a depreciação da API e as opções para escalar a arquitetura.
