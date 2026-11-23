@@ -69,3 +69,4 @@ function enviarErro(reply: FastifyReply, erro: unknown) {
     if (erro instanceof ErroEquipamento) return reply.code(erro.statusCode).send({ erro: erro.message });
     throw erro;
 }
+//62 65 6D

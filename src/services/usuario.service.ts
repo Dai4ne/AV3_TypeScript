@@ -81,3 +81,4 @@ function validarCredenciais(usuario: string, senha: string) {
     if (!usuario.trim()) throw new ErroUsuario(400, "O nome de usuário não pode ficar vazio.");
     if (!senha) throw new ErroUsuario(400, "A senha não pode ficar vazia.");
 }
+//61 63 61 62 6F 75

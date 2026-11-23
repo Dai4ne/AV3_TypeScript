@@ -194,7 +194,7 @@ Para produção local, depois do `npm run dev` funcionar:
 
 ## API pública e análises AV3
 
-As rotas públicas v1 usam `X-API-Key`. As operações internas e administrativas também estão disponíveis em `/api/v1/internal`, protegidas por JWT e pelos papéis exigidos em cada operação. Os caminhos originais da AV2 continuam disponíveis como aliases protegidos durante a transição; novas integrações devem usar os prefixos versionados. A retirada de qualquer rota legada será anunciada com pelo menos 90 dias de antecedência. O administrador cria/lista/revoga/rotaciona chaves em `/api/v1/internal/chaves` usando JWT. A chave completa aparece apenas na criação/rotação; o banco armazena SHA-256. Permissões disponíveis: `rastreabilidade:read`, `lotes:write`, `analises:read`. Rate limit padrão: 120 req/minuto por chave. Cada versão será mantida por pelo menos 12 meses após a publicação da seguinte; a descontinuação terá aviso e data de remoção documentada com antecedência mínima de 90 dias.
+Rotas públicas v1 usam `X-API-Key`; rotas internas usam JWT e permissões de usuário. Um administrador gerencia chaves em `/api/v1/internal/chaves`. O segredo é exibido uma vez e o banco guarda apenas seu hash. Permissões: `rastreabilidade:read`, `lotes:write` e `analises:read`; limite padrão: 120 requisições por minuto por chave. A API está versionada em `/api/v1`; versões antigas terão aviso de remoção com pelo menos 90 dias.
 
 - `GET /api/v1/public/rastreabilidade/:codigo`
 - `POST /api/v1/public/lotes`
@@ -202,52 +202,50 @@ As rotas públicas v1 usam `X-API-Key`. As operações internas e administrativa
 - `POST /api/v1/public/relatorios` com `{ "analise": "eficiencia", "formato": "CSV" }` (formato opcional: `JSON` ou `CSV`; retorna 202 e ID); `GET /api/v1/public/relatorios/:id` consulta o status; `GET /api/v1/public/relatorios/:id/download` baixa o arquivo quando concluído.
 - `GET /api/v1/internal/analises/{eficiencia,rentabilidade,vida-util}` (JWT)
 
-Eficiência considera horas entre entrada e conclusão do lote e agrupa por operador e mês-calendário, exibindo média, desvio padrão e grupos acima da média geral como gargalos. Rentabilidade calcula recuperação média a partir do último valor de recuperação por equipamento, agrupada por tipo, estado físico, marca e modelo. Vida útil usa regressão linear por mínimos quadrados em um índice que combina estado físico, depreciação relativa do valor estimado e falhas registradas para projetar a data de chegada a `INSERVIVEL`. Como as falhas ainda não têm severidade padronizada, cada falha registrada após uma medição representa um avanço ordinal no índice; essa hipótese está detalhada no relatório técnico. Sem histórico suficiente ou tendência de degradação positiva, o serviço não informa uma projeção. `simple-statistics` oferece implementações pequenas e focadas de média, desvio padrão e regressão, sem introduzir uma biblioteca matemática genérica.
+As análises medem tempo de triagem por operador/período, recuperação média por tipo/estado/marca/modelo e projeção de vida útil por regressão linear. A projeção combina estado físico, valor e falhas; os critérios e limitações estão em [RELATORIO_TECNICO_AV3.md](RELATORIO_TECNICO_AV3.md). A biblioteca usada é `simple-statistics`.
 
-As análises internas são executadas sob demanda e também diariamente às 02:00 no fuso `America/Sao_Paulo`. `GET /api/v1/internal/analises/historico?analise=vidaUtil&limite=20` consulta execuções e resultados persistidos. Cada previsão gera uma linha em `PrevisaoVidaUtil`; quando uma medição registra `INSERVIVEL`, previsões anteriores do equipamento recebem a data real e erro assinado em dias. Consulte `GET /api/v1/internal/analises/vida-util/comparacoes?equipamentoId=...` para comparar previsão e ocorrência.
+As análises também rodam diariamente às 02:00 (`America/Sao_Paulo`). Execuções e resultados ficam persistidos para consulta em `/api/v1/internal/analises/historico`; previsões podem ser comparadas ao registro real de `INSERVIVEL` em `/api/v1/internal/analises/vida-util/comparacoes`.
 
-`ExecucaoAnalitica` guarda parâmetros, início, conclusão e resultado JSON para histórico e avaliação posterior. `HistoricoValorEquipamento` e `FalhaEquipamento` preservam medições e falhas. `JobRelatorio` mantém estado, formato, parceiro, parâmetros, resultado, erro, tentativas, agendamento de retry e lease do worker. O PostgreSQL funciona como fila persistente; os workers reivindicam jobs com `FOR UPDATE SKIP LOCKED`, podendo haver múltiplos workers sem processar o mesmo job simultaneamente. São feitas até 5 tentativas com backoff exponencial iniciado em 1 segundo. Após esgotar as tentativas, o job permanece com status `FALHOU` e pode ser inspecionado na dead-letter em PostgreSQL. As análises também são agendadas diariamente às 02:00 (America/Sao_Paulo).
+`ExecucaoAnalitica` guarda resultados; `HistoricoValorEquipamento` e `FalhaEquipamento` registram dados para as análises. `JobRelatorio` armazena estado, parceiro, resultado e tentativas.
 
 ## Fila e worker de relatórios
 
-O worker usa a tabela `JobRelatorio` no PostgreSQL, então não requer Redis nem outro serviço instalado. Execute em terminais separados `npm run dev` e `npm run worker`. O worker consulta a fila a cada segundo por padrão, com concorrência 2; ambos são configuráveis pelo `.env`. Um lease de 10 minutos é renovado enquanto o relatório é processado; se o worker parar inesperadamente, outro worker devolve jobs expirados à fila ou os marca como falhos quando as tentativas já se esgotaram. Os arquivos são gravados em `data/reports` (ou em `REPORTS_DIR`) e esse diretório é ignorado pelo Git. Solicite o job com `POST /api/v1/public/relatorios`, acompanhe o estado por polling no endpoint de status e baixe em `/download` quando estiver `CONCLUIDO`. Jobs e downloads são isolados pelo parceiro autenticado; retries usam backoff exponencial (1s, 2s, 4s, 8s, até cinco tentativas). A dead-letter mantém os registros `FALHOU` no PostgreSQL para inspeção via `/api/v1/internal/relatorios/dead-letter`.
+O worker usa PostgreSQL como fila, sem exigir Redis. Inicie `npm run dev` e `npm run worker` em terminais separados. O `POST /api/v1/public/relatorios` retorna um ID; consulte o status e baixe o arquivo quando estiver `CONCLUIDO`. Há até cinco tentativas com backoff exponencial; falhas finais ficam na dead-letter (`/api/v1/internal/relatorios/dead-letter`). Os arquivos ficam em `data/reports`.
 
 ### Verificação automatizada da AV3
 
-O roteiro recomendado para o professor é `scripts/demonstrar-av3.ps1`. Ele executa os principais caminhos da AV3 em sequência e informa cada status HTTP esperado. Não é necessário copiar os comandos HTTP para o terminal nem executar cada chamada no Swagger.
+Para demonstrar os principais caminhos da AV3, rode `scripts/demonstrar-av3.ps1` no PowerShell. Ele executa as chamadas HTTP e informa os status esperados.
 
 #### Preparação e execução do script de avaliação
 
-1. Abra a pasta do projeto no VS Code e confirme que o `.env` aponta para um PostgreSQL ligado e que as migrations e o seed foram aplicados. O seed fornece os registros `DEMO-` usados nas verificações.
-2. Abra três terminais PowerShell na raiz do projeto. No primeiro, inicie a API:
+1. Confirme que PostgreSQL está ligado, migrations e seed foram aplicados. Abra terminais PowerShell na raiz do projeto. Inicie a API:
 
    ```powershell
    npm run dev
    ```
 
-3. No segundo terminal, inicie o worker de relatórios:
+2. Em outro terminal, inicie o worker:
 
    ```powershell
    npm run worker
    ```
 
-   Deixe os dois terminais abertos. O worker precisa estar ativo para os relatórios JSON e CSV chegarem a `CONCLUIDO`.
-4. No terceiro terminal, ainda na raiz do projeto, execute:
+   Deixe API e worker ativos. Em um terceiro terminal, execute:
 
-```powershell
-.\scripts\demonstrar-av3.ps1
-```
+   ```powershell
+   .\scripts\demonstrar-av3.ps1
+   ```
 
-5. Informe o usuário administrador e a senha quando solicitados. A senha é digitada como texto oculto e não é salva no projeto. O script usa `http://127.0.0.1:3000` por padrão. Se a API estiver em outra URL, defina-a antes de executar, por exemplo:
+3. Informe usuário e senha de administrador quando solicitado. A senha fica oculta. O padrão é `http://127.0.0.1:3000`; para outra porta, defina `API_BASE_URL`, por exemplo:
 
    ```powershell
    $env:API_BASE_URL = "http://127.0.0.1:3001"
    .\scripts\demonstrar-av3.ps1
    ```
 
-6. Aguarde o resultado final. O script pode levar alguns minutos porque aguarda os dois jobs de relatório, consultando o status até 180 segundos. `TODOS OS FLUXOS AV3 PASSARAM` indica que as verificações terminaram; se houver falha, o script mostra o caminho e encerra com código de erro.
+4. Aguarde a conclusão dos relatórios (até 180 segundos cada). A mensagem `TODOS OS FLUXOS AV3 PASSARAM` confirma sucesso; falhas são listadas e retornam código de erro.
 
-O roteiro verifica saúde da API, credenciais inválidas e login correto, especificação OpenAPI, criação/listagem/rotação/revogação de chaves, chamadas sem chave ou com chave inválida, permissões, rastreabilidade existente e inexistente, submissão válida, lote duplicado e contrato expirado, as três análises públicas e internas, histórico analítico e comparações de previsão, dead-letter, isolamento de jobs por parceiro, geração e download de relatórios JSON/CSV, e limite de requisições (429). Ao final, remove o equipamento de demonstração, inativa o lote e revoga as chaves temporárias. Os registros dos jobs e arquivos gerados permanecem no histórico do banco como evidência da execução.
+O script cobre autenticação, chaves e permissões, rastreabilidade, envio de lotes, análises e histórico, limite de requisições, isolamento de parceiros e relatórios JSON/CSV. Ao final, tenta remover os dados temporários e revoga as chaves; jobs e arquivos gerados ficam registrados.
 
 Para rodar apenas um grupo de verificações, os scripts individuais continuam disponíveis:
 
@@ -257,13 +255,11 @@ Para rodar apenas um grupo de verificações, os scripts individuais continuam d
 .\scripts\verificar-relatorios.ps1
 ```
 
-O primeiro verifica chaves, permissões, rastreabilidade, submissão de lote e rate limit; o segundo consulta as três análises e o histórico persistido; o terceiro solicita relatórios JSON e CSV, aguarda até dois minutos, consulta o estado e valida os arquivos baixados. Eles também precisam da API e, para os relatórios, do worker ativos. Os scripts encerram com código diferente de zero se uma verificação falhar.
+Os verificadores individuais cobrem API pública, análises e relatórios. Mantenha API e, para relatórios, worker ativos; falhas encerram o script com código de erro.
 
 ## Relatório técnico da AV3
 
-O Swagger em `/docs` documenta corpos de requisição e respostas com exemplos completos, os parâmetros e os códigos de erro das rotas públicas. O documento [RELATORIO_TECNICO_AV3.md](RELATORIO_TECNICO_AV3.md) registra a biblioteca estatística e sua justificativa, a modelagem analítica e de jobs, a política de retry e dead-letter, a depreciação da API e as opções para escalar a arquitetura.
-
-As chaves e rotas estão versionadas por URL; clientes antigos devem migrar para v1 antes de eventual v2. Para escalar, executar múltiplos workers PostgreSQL, particionar histórico por data/parceiro, cachear agregados por período, aplicar cotas de rate limit por plano e usar réplicas de leitura para relatórios. A API pública documenta exemplos de sucesso e os erros aplicáveis (400, 401, 403, 404, 409, 429 e 500) nos schemas OpenAPI.
+O Swagger (`/docs`) descreve parâmetros, exemplos e erros. O [relatório técnico](RELATORIO_TECNICO_AV3.md) detalha estatística, modelagem, retries, versionamento e opções de escala.
 
 <br>
 
@@ -299,14 +295,12 @@ Com a API no ar (`npm run dev`):
          }
 
    - Clique em **Execute**.
-   - Na resposta `200`, copie só o valor de `token` (sem a palavra `Bearer`).
-2. Na resposta `200`, copie apenas o valor de `token` — sem aspas e sem escrever `Bearer`.
-3. Clique em **Authorize** (cadeado no topo), cole somente o token no campo **bearerAuth** e confirme. O Swagger envia `Authorization: Bearer <token>` nas rotas internas.
-4. Use JWT para `/api/v1/internal/*` e operações administrativas legadas. Essas rotas exigem usuário autenticado; o gerenciamento de chaves e operações administrativas exigem o papel `ADMINISTRADOR`. O token expira em 30 minutos. Um `401` indica token ausente, inválido ou expirado; um `403` indica que o usuário autenticado não tem o papel necessário.
+   - Na resposta `200`, copie o valor de `token`.
+2. Clique em **Authorize**, cole o token no campo **bearerAuth** (sem `Bearer`) e confirme. Use JWT em `/api/v1/internal/*`; o token dura 30 minutos. `401` indica token inválido/ausente e `403` falta de papel.
 
 ### Autorizar chamadas públicas com chave de API
 
-1. Gere a chave usando JWT de administrador: expanda **API interna v1** → `POST /api/v1/internal/chaves` → **Try it out**. Envie, por exemplo:
+1. Com JWT de administrador, abra **API interna v1** → `POST /api/v1/internal/chaves` → **Try it out** e envie:
 
    ```json
    {
@@ -315,14 +309,13 @@ Com a API no ar (`npm run dev`):
    }
    ```
 
-   Execute a chamada e, na resposta `201`, copie o campo `chave` imediatamente. O segredo completo só aparece nessa resposta; o banco guarda apenas o hash. Escolha apenas as permissões que o parceiro precisa.
-2. Clique em **Authorize**, localize **apiKeyAuth** e cole a chave completa. Confirme. Para operações `/api/v1/public/*`, o Swagger envia `X-API-Key: <chave>`.
-3. Execute uma rota pública com **Try it out**. Permissões necessárias: `rastreabilidade:read` para `GET /api/v1/public/rastreabilidade/{codigo}`; `lotes:write` para `POST /api/v1/public/lotes`; `analises:read` para as consultas analíticas e para criar, consultar e baixar relatórios assíncronos.
-4. Respostas de validação esperadas: `401` para chave ausente, inválida, revogada ou expirada; `403` para chave ativa sem a permissão exigida; `404` para equipamento/job não encontrado ou job pertencente a outro parceiro; `409` para lote duplicado ou contrato expirado; `429` quando o limite por chave for excedido. A operação bem-sucedida mostra o código e o corpo documentados para aquela rota.
+   Na resposta `201`, copie o campo `chave` (ele só é exibido uma vez). Em **Authorize**, cole-a em **apiKeyAuth**. As rotas públicas enviam `X-API-Key`. Use `rastreabilidade:read`, `lotes:write` ou `analises:read` conforme a operação.
 
-Rotação e revogação também são administrativas e exigem JWT: use `POST /api/v1/internal/chaves/{id}/rotacionar` para obter um novo segredo (a chave anterior deixa de funcionar) ou `DELETE /api/v1/internal/chaves/{id}` para revogar. Copie e atualize o segredo no **apiKeyAuth** após rotacionar. `GET /api/v1/internal/chaves` lista metadados, sem revelar segredo nem hash.
+`401`: credencial ausente/inválida; `403`: permissão insuficiente; `404`: recurso inexistente ou de outro parceiro; `409`: conflito; `429`: limite excedido.
 
-Em qualquer operação, escolha a rota e clique em **Try it out**, preencha os parâmetros/corpo e clique em **Execute**. O painel mostra o status, a resposta e o `curl` equivalente. A segurança exibida em cada operação indica se ela espera JWT ou chave de API. O script `demonstrar-av3.ps1` automatiza essas validações HTTP; o Swagger é útil para explorar e executar chamadas individualmente.
+Com JWT, rotacione em `POST /api/v1/internal/chaves/{id}/rotacionar` ou revogue em `DELETE /api/v1/internal/chaves/{id}`. O segredo novo aparece uma vez; atualize o **apiKeyAuth**.
+
+Escolha uma rota, clique em **Try it out** e **Execute** para ver status e resposta. A segurança indicada na operação mostra qual credencial usar; `demonstrar-av3.ps1` automatiza os mesmos principais fluxos.
 
 No Swagger, ao atualizar, alterar status, inativar, reativar ou excluir, envie a `versao` atual (veja [Controle de concorrência](#controle-de-concorrência-versao)). No cadastro de equipamento, envie `versaoLote`.
 Para testar outro papel nas rotas internas que permitem esse papel, faça login com essa conta (depois de criá-la como administrador) e substitua o token no **bearerAuth**. Para testar permissões públicas, crie uma chave contendo só a permissão que deseja validar e use-a em **apiKeyAuth**.
